@@ -1,0 +1,6 @@
+[submodule "multiboat_trajectory_optimization"]
+	path = multiboat_trajectory_optimization
+	url = git://github.com/bgheneti/MultiboatTrajectoryOptimization
+[submodule "pypolypart"]
+	path = pypolypart
+	url = https://github.com/chozabu/pypolypart
