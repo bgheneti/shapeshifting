@@ -44,16 +44,18 @@ class HullGraph(Graph):
         
         def add_edges_from_hull_dict(e2h):
             i2e = {}
-            for i, (h1,h2) in enumerate([tuple(v) for v in e2h.values() if len(v)==2]):
-                i2e[i] = g.add_edge(g.vertex(h1),g.vertex(h2)) 
+            e_points = g.new_edge_property("object")
+            for i, ((h1,h2),e) in enumerate([(tuple(v),e) for e,v in e2h.items() if len(v)==2]):
+                i2e[i] = g.add_edge(g.vertex(h1),g.vertex(h2))
+                e_points[i2e[i]] = np.array(e)
                 
-            return i2e
+            return i2e, e_points
         
         super(HullGraph, g).__init__(directed=False)
                 
         e2h, g.vertex_properties["polygon"], g.vertex_properties["polygon_eq"] = extract_edges(hulls)
         
-        g.edge_dict = add_edges_from_hull_dict(e2h)
+        g.edge_dict, g.edge_properties["points"] = add_edges_from_hull_dict(e2h)
             
        
     def line_graph(g):

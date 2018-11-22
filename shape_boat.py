@@ -105,15 +105,39 @@ class ShapeBoat_spline(TwoInputBoat, object):
 
         return mp.add_leq_constraints(val1, val2, linear=True) if mp is not None else val1<=val2
         
+    def edge_constraint(self, e_bool, a, x1, e1, e2, M=100., mp=None):
+        const = M*(e_bool-np.ones(2))
+        x_dif = a*e1 + (1-a)*e2 - x1
+                
+        val1 = np.concatenate((const, x_dif))
+        val2 = np.concatenate((x_dif, -const))
+        return mp.add_leq_constraints(val1, val2, linear=True) if mp is not None else val1==val2
+
+    def edge_line_constraint(self, e_bool, b, x0, x1, x2, M=100., mp=None):
+        const = M*(e_bool-np.ones(2))
+        x_dif = x0+b*(x1-x0)-x2
+                
+        val1 = np.concatenate((const, x_dif))
+        val2 = np.concatenate((x_dif, -const))
+        return True
+        return mp.add_leq_constraints(val1, val2, linear=True) if mp is not None else val1==val2    
+    
     def add_collision_constraints(self, mp, boats_S, M=20.):
         assert len(boats_S)==1
             
         T = len(boats_S[0])
         H = len(self.hull_path) 
-        self.in_hull = mp.NewBinaryVariables(T, H, "c")
+        self.in_hull = mp.NewBinaryVariables(T, H, "hull")
+        self.on_edge = mp.NewBinaryVariables(T, H-1, "edge")
+        
+        self.a = mp.NewContinuousVariables(H-1, "alpha")
+        self.b = mp.NewContinuousVariables(H-1, "beta")
+        mp.AddConstraint(0. <= self.a[0])
+        mp.add_leq_constraints(self.a, np.ones(H-1), linear=True)
+        mp.add_leq_constraints(-self.a, np.zeros(H-1), linear=False)        
         
         for t in range(T):
-            mp.AddLinearConstraint(np.sum(self.in_hull[t])==1)
+            mp.AddLinearConstraint(np.sum(self.in_hull[t])+np.sum(self.on_edge[t])==1)
             boat_s = boats_S[0][t]
             for i,h in enumerate(self.hull_path):
                 
@@ -122,17 +146,36 @@ class ShapeBoat_spline(TwoInputBoat, object):
                                      self.g.vertex_properties["polygon_eq"][self.g.vertex(h)], \
                                      mp=mp                                                     \
                                     )
-                '''
                 if t<T-1:
-                    if i>1:
-                        mp.AddLinearConstraint(2*(1-self.in_hull[t][i])>=self.in_hull[t+1][i-1])
-                    if i<H-1:
-                        mp.AddLinearConstraint((self.in_hull[t][i]-1)+1<=self.in_hull[t+1][i]+self.in_hull[t+1][i+1])
+#                     if i>1:
+#                         mp.AddLinearConstraint(2*(1-self.in_hull[t][i])>=self.in_hull[t+1][i-1])
+#                     if i<H-1:
+#                         mp.AddLinearConstraint((self.in_hull[t][i]-1)+1<=self.in_hull[t+1][i]+self.in_hull[t+1][i+1])
                     if i==H-1:
-                        mp.AddLinearConstraint((self.in_hull[t][i]-1)+1<=self.in_hull[t+1][i])                        
-                '''         
-        #mp.AddLinearConstraint(self.in_hull[0][0]==1)
-        #mp.AddLinearConstraint(self.in_hull[-1][-1]==1)        
+                        mp.AddLinearConstraint(self.in_hull[t][i]<=self.in_hull[t+1][i])
+                    if i<H-1:
+                        mp.AddLinearConstraint(self.in_hull[t][i]<=self.in_hull[t+1][i]+self.on_edge[t+1][i])
+                if t<T-2 and i<H-1:
+                    mp.AddLinearConstraint(self.in_hull[t+2][i+1]+self.in_hull[t][i]<=1+self.on_edge[t+1][i])
+                                   
+        for t in range(1,T-1):                      
+            for i,(h1,h2) in enumerate(zip(self.hull_path[:-1],self.hull_path[1:])):
+                self.edge_constraint(self.on_edge[t][i],                                       \
+                                     self.a[i],                                                \
+                                     boats_S[0,t,:2],                                          \
+                                     *self.g.edge_properties["points"][self.g.edge(h1,h2)],    \
+                                     mp=mp                                                     \
+                                    )
+                self.edge_line_constraint(self.on_edge[t][i],                                       \
+                                          self.b[i],                                                \
+                                          boats_S[0,t-1,:2],                                        \
+                                          boats_S[0,t,:2],                                          \
+                                          boats_S[0,t+1,:2],                                        \
+                                          mp=mp                                                     \
+                                         )                                   
+                                   
+        mp.AddLinearConstraint(self.in_hull[0][0]==1)
+        mp.AddLinearConstraint(self.in_hull[-1][-1]==1)    
                 
     @classmethod
     def boat_dynamics(cls, s, u):
