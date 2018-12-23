@@ -20,42 +20,64 @@ class HullGraph(Graph):
             normal = np.array([-(x2[1]-x1[1]),(x2[0]-x1[0])])
             return (x1.dot(normal)/np.linalg.norm(normal), normal/np.linalg.norm(normal))
 
-        def extract_edges(hulls):
+        def extract_edges(hulls, min_angle, max_angle):
             e2h = collections.defaultdict(set)
             
-            v_poly = g.new_vertex_property("object")
-            v_poly_eq = g.new_vertex_property("object")
+            vertices = []
             
-            for h, hull in enumerate(hulls):
+            for hull in hulls:
                 vertex = g.add_vertex()
+                vertices.append(g.vertex_index[vertex])
                 
                 points = zip(*hull.boundary.xy)
                 b = np.zeros((len(points)-1))
                 normal = np.zeros((len(points)-1, 2))
                 
-                v_poly[vertex] = hull
-                v_poly_eq[vertex] = {'b': b, 'A': normal}                
+                g.vertex_properties["polygon"][vertex] = hull
+                g.vertex_properties["polygon_eq"][vertex] = {'b': b, 'A': normal}
+                g.vertex_properties["min_angle"][vertex] = min_angle
+                g.vertex_properties["max_angle"][vertex] = max_angle
                 
                 for i, edge in enumerate(zip(points[:-1],points[1:])):
-                    e2h[sorted_edge(edge)].add(h)
+                    e2h[sorted_edge(edge)].add(g.vertex_index[vertex])
                     b[i], normal[i] = edge_equation(*np.array(edge))
                     
-            return e2h, v_poly, v_poly_eq
+            return e2h, vertices
         
         def add_edges_from_hull_dict(e2h):
-            i2e = {}
-            e_points = g.new_edge_property("object")
-            for i, ((h1,h2),e) in enumerate([(tuple(v),e) for e,v in e2h.items() if len(v)==2]):
-                i2e[i] = g.add_edge(g.vertex(h1),g.vertex(h2))
-                e_points[i2e[i]] = np.array(e)
-                
-            return i2e, e_points
+            for (h1,h2),e in [(tuple(v),e) for e,v in e2h.items() if len(v)==2]:
+                edge = g.add_edge(g.vertex(h1),g.vertex(h2))
+                g.edge_dict[g.edge_index[edge]] = edge
+                g.edge_properties["points"][edge] = np.array(e)
         
         super(HullGraph, g).__init__(directed=False)
-                
-        e2h, g.vertex_properties["polygon"], g.vertex_properties["polygon_eq"] = extract_edges(hulls)
         
-        g.edge_dict, g.edge_properties["points"] = add_edges_from_hull_dict(e2h)
+        g.vertex_properties["polygon"] = g.new_vertex_property("object")
+        g.vertex_properties["polygon_eq"] = g.new_vertex_property("object")
+        g.vertex_properties["min_angle"] = g.new_vertex_property("object")
+        g.vertex_properties["max_angle"] = g.new_vertex_property("object")
+        g.edge_properties["points"] = g.new_edge_property("object")
+        g.v_poly = g.vertex_properties["polygon"]
+        g.edge_dict = {}
+        
+        
+        angle_V = []
+        
+        for (min_angle, max_angle),H in hulls.items():
+            e2h, vertices = extract_edges(H, min_angle, max_angle)
+            angle_V.append([min_angle, max_angle, vertices])
+            add_edges_from_hull_dict(e2h)
+            
+        for i in range(len(angle_V)):
+            for j in range(i+1, len(angle_V)):
+                if angle_V[j][0]<=angle_V[i][0]<=angle_V[j][1] or angle_V[j][0]<=angle_V[i][1]<=angle_V[j][1] or (angle_V[i][0]<angle_V[j][0] and angle_V[j][1]<=angle_V[i][1]):
+                    for v1 in angle_V[i][2]:
+                        for v2 in angle_V[j][2]:
+                            intersection = g.v_poly[v1].intersection(g.v_poly[v2])
+                            if intersection.area > 0:
+                                edge = g.add_edge(g.vertex(v1),g.vertex(v2))
+                                g.edge_dict[g.edge_index[edge]] = edge
+                                g.edge_properties["points"][edge] = np.array(zip(*intersection.boundary.xy))
             
        
     def line_graph(g):

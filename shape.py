@@ -12,10 +12,12 @@ class Shape:
         self.polygon = ops.cascaded_union([s.polygon for s in shapes]) 
         self.subblocks = np.concatenate([s.subblocks for s in shapes])
         
-    def rectangle(self, x, y, dx, dy):
+    @staticmethod
+    def rectangle(x, y, dx, dy):
         return geometry.Polygon([(x+i*dx,y+j*dy) for i,j in [(1,1),(-1,1),(-1,-1),(1,-1)]])
     
-    def plot_polygons(self, polygons):
+    @staticmethod    
+    def plot_polygons(polygons):
         plt.figure(figsize=(12,12))
         plt.axis('equal')
         
@@ -85,7 +87,7 @@ class Shape:
     
     def c_space(self, shape_b, margin=0):              
         assert self.on_grid() and shape_b.on_grid()        
-        return self.grid_coords_to_shape(self.convolve_grid_coords(shape_b),margin=margin)      
+        return self.grid_coords_to_shape(self.convolve_grid_coords(shape_b),margin=margin,buffered=True)      
         
 class Block(Shape):
     def __init__(self, x, y, theta=0, width=1, height=0.5):
