@@ -6,6 +6,8 @@ import shapely.affinity as affinity
 from pypolypart import pypolypart
 from scipy.signal import convolve2d
 
+from pyclipper import MinkowskiSum, scale_from_clipper as from_clipper, scale_to_clipper as to_clipper
+
 class Shape:
     def __init__(self, shapes):
         self.blocks = shapes
@@ -87,7 +89,67 @@ class Shape:
     
     def c_space(self, shape_b, margin=0):              
         assert self.on_grid() and shape_b.on_grid()        
-        return self.grid_coords_to_shape(self.convolve_grid_coords(shape_b),margin=margin,buffered=True)      
+        return self.grid_coords_to_shape(self.convolve_grid_coords(shape_b),margin=margin,buffered=True)
+    
+    ########################
+    #Calc Hulls for Rotation
+    ########################
+    
+    def bounds(self, polygon):
+            return np.array(list(reversed((zip(*polygon.boundary.xy)))))
+        
+    def polygon_rotate(self, polygon, theta):
+            return affinity.rotate(polygon,theta,geometry.Point(0,0))
+        
+    def polygon_rotate_range(self, polygon, theta1, theta2, num):
+        return ops.cascaded_union([self.polygon_rotate(polygon, t) for t in np.linspace(theta1, theta2, num)])
+    
+    def bounds_rotate(self, polygon, theta1, theta2):
+        return self.bounds(self.polygon_rotate_range(polygon, theta1, theta2, 1 if theta1==theta2 else 200))
+        
+    def loop(self, x):
+        return np.vstack((x, x[0]))
+
+    def calc_hulls(self, msum):
+        area = zip(*Shape.rectangle(0,0,8,8).boundary.xy)[:-1]
+        p2 = geometry.Polygon(msum).simplify(0.01).buffer(0.2,cap_style=3).simplify(0.05).boundary
+        print p2
+        if p2.type == 'MultiLineString':
+            holes = [zip(*p.coords.xy)[:-1] for p in p2]
+        else:
+            holes = [zip(*p2.coords.xy)[:-1]]
+        
+        plt.plot(*zip(*holes[0]))
+        
+        hulls = [geometry.Polygon(p) for p in pypolypart.polys_to_tris_and_hulls([area], holes)["hulls"]]
+        return hulls
+    
+    def minkowski_sum(self, bounds_a, bounds_b):
+        return np.array(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0]) 
+    
+    def c_space_rotate(self, shape_b):
+        angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
+        bounds_a = self.bounds(self.polygon)
+        bounds_B = {(a,b): self.bounds_rotate(shape_b.polygon, a, b) for a,b in angle_ranges}
+
+        msums = {angle_range: self.minkowski_sum(bounds_a,bounds_b) for angle_range,bounds_b in bounds_B.items()}
+        hulls = {angle_range: self.calc_hulls(msum) for angle_range,msum in msums.items()}
+
+        #plt.plot(*zip(*bounds_B.values()[0]))
+        #plt.plot(*zip(*bounds_a))
+        return msums, hulls
+    
+    def c_space_rotate_latch(self, shape_b, x, y, theta):
+        msum = self.minkowski_sum(self.bounds(self.polygon), self.bounds_rotate(shape_b.polygon, theta, theta))
+
+        hull = geometry.Polygon(self.rectangle(x, y, 0.5, 0.5)).difference(geometry.Polygon(msum))
+        return msum, hull
+
+    def plot_msums(self, msums):
+        plt.figure()
+        for msum in msums.values():
+            plt.plot(*zip(*self.loop(msum)))
+        plt.show()
         
 class Block(Shape):
     def __init__(self, x, y, theta=0, width=1, height=0.5):
@@ -115,7 +177,10 @@ def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
 
     plt.axis('equal')
     for i, hull in enumerate(hulls):
-        X,Y = hull.boundary.xy
+        try:
+            X,Y = hull.boundary.xy
+        except:
+            print type(hull)
         [x],[y] = hull.centroid.xy
         plt.plot(X,Y,'-',linewidth=4)
         ax = plt.gca()
