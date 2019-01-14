@@ -4,7 +4,6 @@ import shapely.geometry as geometry
 import matplotlib.pyplot as plt
 import shapely.affinity as affinity
 from pypolypart import pypolypart
-from scipy.signal import convolve2d
 
 from pyclipper import MinkowskiSum, scale_from_clipper as from_clipper, scale_to_clipper as to_clipper
 
@@ -34,62 +33,6 @@ class Shape:
     def radius(self):
         corners = np.array(self.polygon.convex_hull.boundary.xy).T
         return max([np.linalg.norm(c1-c2) for c1 in corners for c2 in corners])     
-
-    def partition_around(self, shape_b=None, buffered=True, simplify=True):
-            
-        r = self.radius() if shape_b is None else shape_b.radius()
-        dx = dy = 4*r
-            
-        polygon = self.polygon.buffer(r) if buffered else self.polygon
-        polygon = polygon.simplify(0.05) if simplify else polygon
-        (x),(y) = self.polygon.centroid.xy
-
-        area = zip(*self.rectangle(x,y,dx,dy).boundary.xy)[:-1]
-        hole = zip(*polygon.boundary.coords.xy)[:-1]
-                
-        return [geometry.Polygon(p) for p in pypolypart.polys_to_tris_and_hulls([area], [hole])["hulls"]]
-    
-    
-    ############################################################
-    # Manipulating Shapes as a discrete grid / Convolving Shapes 
-    ############################################################
-    
-    def grid_coords(self):
-        return np.array(self.subblocks*2-0.5, dtype='int')
-    
-    def grid_coords_to_shape(self, coords, buffered=True, margin=0):
-        side = 1. if buffered else 0.5
-        side += 2*margin
-        return Shape([Block(c[0],c[1], width=side, height=side) for c in np.array(coords/2.0)])
-    
-    def convolve_grid_coords(self, shape_b):
-        coords_a = self.grid_coords()
-        coords_b = shape_b.grid_coords()
-        
-        min_a = np.min(coords_a, axis=0)
-        min_b = np.min(coords_b, axis=0)
-        
-        max_a = np.max(coords_a, axis=0)
-        max_b = np.max(coords_b, axis=0)
-
-        grid_a = np.zeros(tuple(max_a-min_a+1))
-        grid_b = np.zeros(tuple(max_b-min_b+1))
-        
-        grid_a[tuple((coords_a-min_a).T)] = 1
-        grid_b[tuple((coords_b-min_b).T)] = 1
-        
-        coords = np.array(np.where(convolve2d(grid_a, grid_b)>0)).T
-        
-        coords += min_a + (min_b - min_a)
-
-        return coords
-    
-    def on_grid(self):
-        return np.all(self.subblocks%0.5==0.25)
-    
-    def c_space(self, shape_b, margin=0):              
-        assert self.on_grid() and shape_b.on_grid()        
-        return self.grid_coords_to_shape(self.convolve_grid_coords(shape_b),margin=margin,buffered=True)
     
     ########################
     #Calc Hulls for Rotation
@@ -137,8 +80,13 @@ class Shape:
     def buffered_msum(self, msum, buffer=0.2):
         return msum.simplify(0.01).buffer(buffer,cap_style=3).simplify(0.1)
     
-    def free_rectangle(self, msum, x, dx=0.25, dy=.25):
+    def free_rectangle(self, msum, x, dx, dy):
         return self.rectangle(x[0], x[1], dx, dy).difference(msum)
+    
+    def trim_buffer(self, msums, buffered_msums, x, dx=.25, dy=.25):
+        if x is not None:
+            angles = (x[2], x[2])
+            buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x))
         
     def c_space_rotate(self, shape_b, x0=None, xN=None):
         angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
@@ -148,31 +96,12 @@ class Shape:
         msums = {angles: self.msum(bounds_a,bounds_b) for angles,bounds_b in bounds_B.items()}
         buffered_msums = {angles: self.buffered_msum(msum) for angles,msum in msums.items()}
         
-        angles0 = (x0[2], x0[2])
-        anglesN = (xN[2], xN[2])
-        
-        if x0 is not None:
-            buffered_msums[angles0] = buffered_msums[angles0].difference(self.free_rectangle(msums[angles0], x0))
-        if xN is not None:
-            buffered_msums[anglesN] = buffered_msums[anglesN].difference(self.free_rectangle(msums[anglesN], xN))
-            print buffered_msums[anglesN]
-            
+        self.trim_buffer(msums, buffered_msums, x0)
+        self.trim_buffer(msums, buffered_msums, xN)
+
         hulls = {angle_range: self.calc_hulls(msum) for angle_range,msum in buffered_msums.items()}
 
-        #plt.plot(*zip(*bounds_B.values()[0]))
-        #plt.plot(*zip(*bounds_a))
-        return hulls
-    
-    def c_space_rotate_latch(self, shape_b, x, y, theta):
-        msum1 = self.msum(self.bounds(self.polygon), self.bounds_rotate(shape_b.polygon, theta, theta))
-        msum2 = self.buffered_msum(msum1)
-        p = self.rectangle(x, y, 0.25, 0.25).difference(msum1).intersection(msum2)
-        
-        if p.area==0:
-            return []
-        else:
-            print self.calc_hulls(area=p, buffer=0)
-            return self.calc_hulls(area=p, buffer=0)
+        return msums, hulls
 
     def plot_msums(self, msums):
         plt.figure()
@@ -200,9 +129,10 @@ class Block(Shape):
         self.subblocks = np.array([affinity.rotate(b, self.theta,origin=center).centroid.xy for b in self.subblocks])\
                            .reshape(2,2)
 
-def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
+def plot_hulls(hulls, path=
+None, text=True, figure=True, color='black'):
     if figure:
-        plt.figure(figsize=(10,10))#,facecolor='black')
+        plt.figure(figsize=(10,10))
 
     plt.axis('equal')
     for i, hull in enumerate(hulls):
@@ -212,7 +142,7 @@ def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
         ax = plt.gca()
         #ax.set_facecolor((0,0,0))
         if text:
-            plt.text(x,y, str(i), fontsize=20)#, color='white')
+            plt.text(x,y, str(i), fontsize=20)
         
     if path is not None:
         plt.plot(*path, linewidth=3, color=color)

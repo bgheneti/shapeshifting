@@ -81,10 +81,10 @@ class ShapeBoat_spline(ThreeInputBoat, object):
     def __init__(self, boat_shape, obstacle_shape, margin=0):
         self.shape = boat_shape
         self.obstacle_shape = obstacle_shape
-        #self.hulls = self.obstacle_shape.c_space(boat_shape,margin=margin).partition_around(self.shape, buffered=False)
-        self.hulls = None
-        self.g = None
-        self.path = None
+        self.hulls     = None
+        self.msums     = None
+        self.g         = None
+        self.path      = None
         self.hull_path = None
     
     def toProblemStates(self, boats_S):
@@ -96,7 +96,7 @@ class ShapeBoat_spline(ThreeInputBoat, object):
         return super(ShapeBoat_spline, self).toGlobalStates(boats_S, state_initial)
 
     def set_end_points(self, x0, xN):
-        self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
+        self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
         self.g = HullGraph(self.hulls)        
         
         #self.g.draw_graph()
