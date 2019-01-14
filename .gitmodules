@@ -3,4 +3,5 @@
 	url = git://github.com/bgheneti/MultiboatTrajectoryOptimization
 [submodule "pypolypart"]
 	path = pypolypart
-	url = https://github.com/chozabu/pypolypart
+  url = https://github.com/bgheneti/pypolypart
+  branch = built
