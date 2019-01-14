@@ -83,10 +83,7 @@ class HullGraph(Graph):
                                 v+=0
                                 edge = g.add_edge(g.vertex(v1),g.vertex(v2))
                                 g.edge_dict[g.edge_index[edge]] = edge
-                                #g.edge_properties["points"][edge] = np.array(zip(*intersection.boundary.xy))
-                    if v==0:
-                        print angle_V[j], angle_V[i]
-            
+                                #g.edge_properties["points"][edge] = np.array(zip(*intersection.boundary.xy))            
        
     def line_graph(g):
         lg, lg_vmap = generation.line_graph(g)
@@ -97,12 +94,13 @@ class HullGraph(Graph):
         g.edge_properties["vmap"] = g_vmap
         return lg
     
-    def point_vertex(g, point, theta):
+    def point_vertex(g, point, theta, skip_angle=False):
         print "finding_vertex",point,theta
+        vertices = []
         for hull in g.vertices():
             if g.vertex_properties['polygon'][hull].intersects(point) and \
-               g.vertex_properties['min_angle'][hull]<=theta<=g.vertex_properties['max_angle'][hull]:
-                print g.vertex_properties['min_angle'][hull],g.vertex_properties['max_angle'][hull]
+               (skip_angle or g.vertex_properties['min_angle'][hull]<=theta<=g.vertex_properties['max_angle'][hull]):
+                #print hull, g.vertex_properties['min_angle'][hull], g.vertex_properties['max_angle'][hull], g.vertex_properties["polygon_eq"][hull]
                 return g.vertex_index[hull]
         return None
 
@@ -126,7 +124,7 @@ class HullGraph(Graph):
     def point_path(g, p0, pN, theta1, theta2):
         v0 = g.point_vertex(p0, theta1)
         vN = g.point_vertex(pN, theta2)
-        print v0, vN
+        print "found path endpoint hulls", v0, vN
         assert(v0 is not None and vN is not None)
         
         return g.vertex_path(v0, vN)

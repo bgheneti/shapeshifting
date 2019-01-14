@@ -109,41 +109,70 @@ class Shape:
         
     def loop(self, x):
         return np.vstack((x, x[0]))
-
-    def calc_hulls(self, msum):
-        area = zip(*Shape.rectangle(0,0,8,8).boundary.xy)[:-1]
-        p2 = geometry.Polygon(msum).simplify(0.01).buffer(0.2,cap_style=3).simplify(0.05).boundary
-        print p2
-        if p2.type == 'MultiLineString':
-            holes = [zip(*p.coords.xy)[:-1] for p in p2]
+    
+    def split_poly_boundaries(self, p):
+        b = p.boundary
+        
+        if b.type == 'MultiLineString':
+            return [zip(*l.coords.xy)[:-1] for l in b]
         else:
-            holes = [zip(*p2.coords.xy)[:-1]]
+            return [zip(*b.coords.xy)[:-1]]
         
-        plt.plot(*zip(*holes[0]))
+    def calc_hulls(self, msum=None, area=None, buffer=0.2):
+        if area is None:
+            area = self.rectangle(0,0,8,8)
+        polys = self.split_poly_boundaries(area)
+
+        if msum is None:
+            holes = []
+            polys = [p[::-1] for p in polys]
+        else:
+            holes = self.split_poly_boundaries(msum)
+            
+        return [geometry.Polygon(p) for p in pypolypart.polys_to_tris_and_hulls(polys, holes)["hulls"]]
+    
+    def msum(self, bounds_a, bounds_b):
+        return geometry.Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
+
+    def buffered_msum(self, msum, buffer=0.2):
+        return msum.simplify(0.01).buffer(buffer,cap_style=3).simplify(0.1)
+    
+    def free_rectangle(self, msum, x, dx=0.25, dy=.25):
+        return self.rectangle(x[0], x[1], dx, dy).difference(msum)
         
-        hulls = [geometry.Polygon(p) for p in pypolypart.polys_to_tris_and_hulls([area], holes)["hulls"]]
-        return hulls
-    
-    def minkowski_sum(self, bounds_a, bounds_b):
-        return np.array(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0]) 
-    
-    def c_space_rotate(self, shape_b):
+    def c_space_rotate(self, shape_b, x0=None, xN=None):
         angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
         bounds_a = self.bounds(self.polygon)
         bounds_B = {(a,b): self.bounds_rotate(shape_b.polygon, a, b) for a,b in angle_ranges}
 
-        msums = {angle_range: self.minkowski_sum(bounds_a,bounds_b) for angle_range,bounds_b in bounds_B.items()}
-        hulls = {angle_range: self.calc_hulls(msum) for angle_range,msum in msums.items()}
+        msums = {angles: self.msum(bounds_a,bounds_b) for angles,bounds_b in bounds_B.items()}
+        buffered_msums = {angles: self.buffered_msum(msum) for angles,msum in msums.items()}
+        
+        angles0 = (x0[2], x0[2])
+        anglesN = (xN[2], xN[2])
+        
+        if x0 is not None:
+            buffered_msums[angles0] = buffered_msums[angles0].difference(self.free_rectangle(msums[angles0], x0))
+        if xN is not None:
+            buffered_msums[anglesN] = buffered_msums[anglesN].difference(self.free_rectangle(msums[anglesN], xN))
+            print buffered_msums[anglesN]
+            
+        hulls = {angle_range: self.calc_hulls(msum) for angle_range,msum in buffered_msums.items()}
 
         #plt.plot(*zip(*bounds_B.values()[0]))
         #plt.plot(*zip(*bounds_a))
-        return msums, hulls
+        return hulls
     
     def c_space_rotate_latch(self, shape_b, x, y, theta):
-        msum = self.minkowski_sum(self.bounds(self.polygon), self.bounds_rotate(shape_b.polygon, theta, theta))
-
-        hull = geometry.Polygon(self.rectangle(x, y, 0.5, 0.5)).difference(geometry.Polygon(msum))
-        return msum, hull
+        msum1 = self.msum(self.bounds(self.polygon), self.bounds_rotate(shape_b.polygon, theta, theta))
+        msum2 = self.buffered_msum(msum1)
+        p = self.rectangle(x, y, 0.25, 0.25).difference(msum1).intersection(msum2)
+        
+        if p.area==0:
+            return []
+        else:
+            print self.calc_hulls(area=p, buffer=0)
+            return self.calc_hulls(area=p, buffer=0)
 
     def plot_msums(self, msums):
         plt.figure()
@@ -177,10 +206,7 @@ def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
 
     plt.axis('equal')
     for i, hull in enumerate(hulls):
-        try:
-            X,Y = hull.boundary.xy
-        except:
-            print type(hull)
+        X,Y = hull.boundary.xy
         [x],[y] = hull.centroid.xy
         plt.plot(X,Y,'-',linewidth=4)
         ax = plt.gca()
