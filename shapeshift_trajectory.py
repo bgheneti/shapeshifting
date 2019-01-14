@@ -1,5 +1,6 @@
 from shape_boat import ShapeBoat_spline
 from multiboat_trajectory_optimization.trajectory_planner import BoatConfigurationPlanning
+import numpy as np
 
 def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=10, margin=0.0, boat_type=ShapeBoat_spline, opt_angle=False):
     x0 = np.zeros((1, boat_type.num_states))

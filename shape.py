@@ -86,7 +86,7 @@ class Shape:
     def trim_buffer(self, msums, buffered_msums, x, dx=.25, dy=.25):
         if x is not None:
             angles = (x[2], x[2])
-            buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x))
+            buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x, dx, dy))
         
     def c_space_rotate(self, shape_b, x0=None, xN=None):
         angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
@@ -106,7 +106,7 @@ class Shape:
     def plot_msums(self, msums):
         plt.figure()
         for msum in msums.values():
-            plt.plot(*zip(*self.loop(msum)))
+            plt.plot(*zip(*self.loop(msum.boundary)))
         plt.show()
         
 class Block(Shape):
