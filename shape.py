@@ -19,7 +19,7 @@ class Shape:
     
     @staticmethod    
     def plot_polygons(polygons):
-        plt.figure(figsize=(12,12))
+        plt.figure(figsize=(7,7))
         plt.axis('equal')
         
         for p in polygons:

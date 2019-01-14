@@ -105,8 +105,9 @@ class ShapeBoat_spline(ThreeInputBoat, object):
         
         self.path  = self.g.point_path(Point(*x0[0,:2]), Point(*xN[0,:2]), x0[0, 2], xN[0,2])
         
-        self.hull_path = [{"polygon_eq": self.g.vertex_properties["polygon_eq"][i], \
-                            "min_angle":  self.g.vertex_properties["min_angle"][i], \
+        self.hull_path = [{ "polygon":    self.g.vertex_properties["polygon"][i],    \
+                            "polygon_eq": self.g.vertex_properties["polygon_eq"][i], \
+                            "min_angle":  self.g.vertex_properties["min_angle"][i],  \
                             "max_angle":  self.g.vertex_properties["max_angle"][i]} for i in self.path]
         
         print len(self.path)

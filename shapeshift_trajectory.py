@@ -1,8 +1,12 @@
 from shape_boat import ShapeBoat_spline
+from pydrake.all import SolutionResult
 from multiboat_trajectory_optimization.trajectory_planner import BoatConfigurationPlanning
 import numpy as np
 
 def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=10, margin=0.0, boat_type=ShapeBoat_spline, opt_angle=False):
+    result2     = None
+    boats_S_new = None
+    
     x0 = np.zeros((1, boat_type.num_states))
     xN = np.zeros((1, boat_type.num_states))
     x0[0, :3] = xy0
@@ -10,14 +14,18 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=10, margin=0.0
     boat = boat_type(boat_shape, obstacle_shape, margin=margin)
     boat.set_end_points(x0, xN)
     planner = BoatConfigurationPlanning(boat)
-    boats_S, boats_U, in_hull, on_edge, mp, result, solve_time = planner.compute_spline_trajectory(0., 10, x0, xN, input_position_cost=True, slack=0, N=N)
-
-    if opt_angle:
-        boats_S, boats_U, in_hull, on_edge, mp, result, solve_time = planner.compute_spline_trajectory(0., 10, x0, xN, input_angle_cost=True, slack=0, N=N, in_hull=in_hull, on_edge=on_edge, states_initialization=boats_S, fix_initialization_inds=[0,1])
-        
-    boats_S_new = knots_to_trajectory(boats_S, 10)
+    boats_S, boats_U, in_hull, on_edge, mp, result1, solve_time = planner.compute_spline_trajectory(0., 10, x0, xN, input_position_cost=True, slack=0, N=N)
     
-    return {'boat': boat, 'S_knots': boats_S, 'S' : boats_S_new, 'U': boats_U, 'mp': mp}
+    success = result1==0
+        
+    if opt_angle and success:
+        boats_S, boats_U, in_hull, on_edge, mp, result2, solve_time = planner.compute_spline_trajectory(0., 10, x0, xN, input_angle_cost=True, slack=0, N=N, in_hull=in_hull, on_edge=on_edge, states_initialization=boats_S, fix_initialization_inds=[0,1])
+        success = result2==0
+               
+    if success:
+        boats_S_new = knots_to_trajectory(boats_S, 10)
+    
+    return {'boat': boat, 'S_knots': boats_S, 'S' : boats_S_new, 'U': boats_U, 'mp': mp, 'result_spline': result1, 'result_angle': result2, 'success': success}
 
 def knots_to_trajectory(boats_S, dN, order=3):
     boats_S_sample = np.zeros((boats_S.shape[0],boats_S.shape[1]+2*(order-1),boats_S.shape[2]))
