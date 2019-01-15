@@ -76,7 +76,7 @@ class ShapeBoat(TwoInputBoat, object):
 class ShapeBoat_spline(ThreeInputBoat, object):
     
     linear=True
-    num_states=8
+    num_inputs=4
     
     def __init__(self, boat_shape, obstacle_shape, margin=0):
         self.shape = boat_shape
