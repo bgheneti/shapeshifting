@@ -11,7 +11,7 @@ class ShapeBoat(ThreeInputBoat, object):
     linear=True
     num_inputs=4
     
-    def __init__(self, boat_shape, obstacle_shape, margin=0):
+    def __init__(self, boat_shape, obstacle_shape, search=True):
         self.shape = boat_shape
         self.obstacle_shape = obstacle_shape
         self.hulls     = None
@@ -19,6 +19,7 @@ class ShapeBoat(ThreeInputBoat, object):
         self.g         = None
         self.path      = None
         self.hull_path = None
+        self.search    = search
     
     def toProblemStates(self, S):
         assert len(S)==1
@@ -28,21 +29,32 @@ class ShapeBoat(ThreeInputBoat, object):
         assert len(S)==1
         return super(ShapeBoat, self).toGlobalStates(S, state_initial)
 
-    def set_end_points(self, x0, xN):
+    def set_end_points(self, x0, xN, all_hulls=False):
         self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
         self.g = HullGraph(self.hulls)        
         
-        #self.g.draw_graph()
-        
-        plot_hulls(self.hulls[(0,0)])
-        
-        self.path  = self.g.point_path(Point(*x0[0,:2]), Point(*xN[0,:2]), x0[0, 2], xN[0,2])
-        
+        if self.search:
+            self.path  = self.g.point_path(Point(*x0[0,:2]), Point(*xN[0,:2]), x0[0, 2], xN[0,2])
+        else:
+            self.path = range(self.g.num_vertices())
+
         self.hull_path = [{ "polygon":    self.g.vertex_properties["polygon"][i],    \
                             "polygon_eq": self.g.vertex_properties["polygon_eq"][i], \
                             "min_angle":  self.g.vertex_properties["min_angle"][i],  \
                             "max_angle":  self.g.vertex_properties["max_angle"][i]} for i in self.path]
 
+        
+    def plot_hulls(self, S=None, in_hull=None, all_hulls=False, text=True):
+        if all_hulls:
+            chosen_hulls = [x for hulls in self.hulls.values() for x in hulls]
+        else: 
+            assert self.hull_path is not None
+            assert in_hull.shape[1] == len(self.hull_path)
+            chosen_i = np.where(np.sum(in_hull, axis=0)>0)[0]
+            chosen_hulls = self.hull_path if in_hull is None else [self.hull_path[i]['polygon'] for i in chosen_i]
+
+        plot_hulls(chosen_hulls, None if S is None else (S[0,:,0], S[0,:,1]), text=text)
+        
     @staticmethod        
     def hull_constraint(h_bool, x, eq, M=100., mp=None):
         val1 = M*(h_bool-1)+eq['b']
@@ -64,7 +76,7 @@ class ShapeBoat(ThreeInputBoat, object):
         return mp.add_leq_constraints([val1-val2, -val3+val2],[0, 0], linear=True) if mp is not None else val1<=val2<=val3
 
     @staticmethod
-    def add_integer_constraints(in_hull, on_edge, angle_mod, mp):
+    def add_integer_constraints(in_hull, mp):
         N, H = in_hull.shape  
 
         mp.AddLinearConstraint(in_hull[0][0]==1)
@@ -79,11 +91,8 @@ class ShapeBoat(ThreeInputBoat, object):
                     
             #reduce searchspace if traversing hulls sequentially
             mp.AddLinearConstraint(in_hull[t][H-1]<=in_hull[t+1][H-1])
-        for t in range(1,N):            
-            for i in range(H):
-                mp.AddLinearConstraint(in_hull[t-1][i]<=in_hull[t][i]+on_edge[t-1])
 
-    def add_position_collision_constraints(self, S, in_hull, on_edge, mp, M=20.):
+    def add_position_collision_constraints(self, S, in_hull, mp, M=20.):
         for t in range(S.shape[1]-1):
             for i,hull in enumerate(self.hull_path):
                 for dt in range(2):
@@ -188,26 +197,40 @@ class ShapeBoat_spline(ShapeBoat, object):
 
         return S_new, U_new
     
-    @staticmethod                                           
-    def edge_line_constraint(e_bool, x0, x1, x2, M=100., mp=None):
-        const = M*(e_bool-np.ones(2))
-        x_dif = x1+(x1-x0)-x2
-                                       
-        val1 = np.concatenate((const, x_dif))
-        val2 = np.concatenate((x_dif, -const))
-        return mp.add_leq_constraints(val1-val2, np.zeros(val1.shape), linear=True) if mp is not None else val1==val2  
+    @staticmethod        
+    def hull_edge_constraint(h_bool, h_bools, x0, x2, eq, M=100., mp=None):
+        x_avg = (x0+x2)/2
+        val1 = M*(h_bool+h_bools-2)+eq['b']
+        val2 = eq['A'].dot((x_avg[:2]).T)
+        return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=True) if mp is not None else val1<=val2  
+    
+    def add_position_collision_constraints(self, S, in_hull, mp, M=20.):
+        super(ShapeBoat_spline, self).add_position_collision_constraints(S, in_hull, mp, M)
+        N, H = in_hull.shape
+        
+        for i,hull in enumerate(self.hull_path):
+            other_h = [j for j in range(H) if j!=i]
+                
+            for t in range(1,N):
+                t_e = t-1
+                in_hulls0 = np.sum(in_hull[t-1, other_h])
+                in_hulls1 = np.sum(in_hull[t  , other_h])
 
-    def add_position_collision_constraints(self, S, in_hull, on_edge, mp, M=20.):
-        super(ShapeBoat_spline, self).add_position_collision_constraints(S, in_hull, on_edge, mp, M)
-                 
-        for t in range(1,S.shape[1]-1):
-            t_e = t-1
-            self.edge_line_constraint(on_edge[t_e],    \
-                                      S[0,t-1,:2],     \
-                                      S[0,t,:2],       \
-                                      S[0,t+1,:2],     \
-                                      mp=mp            \
-                                     )
+                self.hull_edge_constraint(in_hull[t][i],      \
+                                          in_hulls0,          \
+                                          S[0,t-1,:2],        \
+                                          S[0,t+1,:2],        \
+                                          hull["polygon_eq"], \
+                                          mp=mp               \
+                                         )
+
+                self.hull_edge_constraint(in_hull[t-1][i],    \
+                                          in_hulls1,          \
+                                          S[0,t-1,:2],        \
+                                          S[0,t+1,:2],        \
+                                          hull["polygon_eq"], \
+                                          mp=mp               \
+                                         )
 
     @classmethod    
     def add_input_position_cost(cls, S, U, mp):

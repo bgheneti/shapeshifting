@@ -129,8 +129,7 @@ class Block(Shape):
         self.subblocks = np.array([affinity.rotate(b, self.theta,origin=center).centroid.xy for b in self.subblocks])\
                            .reshape(2,2)
 
-def plot_hulls(hulls, path=
-None, text=True, figure=True, color='black'):
+def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
     if figure:
         plt.figure(figsize=(10,10))
 

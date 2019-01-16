@@ -1,43 +1,59 @@
-from shape_boat import ShapeBoat_spline
+from shape_boat import ShapeBoat_spline, ShapeBoat
 from pydrake.all import SolutionResult
 from multiboat_trajectory_optimization.trajectory_planner import BoatConfigurationPlanning
 import numpy as np
 import pickle
 
-def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, margin=0.0, boat_type=ShapeBoat_spline, opt_angle=True):
-    result2 = None
-    S_knots = None
-    U_knots = None
+def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_init=None, boat_type=ShapeBoat_spline, plot=True):
+    result_init = None
+    boat_init   = None
+    S_init      = None
+    U_init      = None
+    S_knots     = None
+    U_knots     = None
+    success     = True
+    in_hull     = None
     
     x0 = np.zeros((1, boat_type.num_states))
     xN = np.zeros((1, boat_type.num_states))
     x0[0, :3] = xy0
     xN[0, :3] = xyN
-    boat = boat_type(boat_shape, obstacle_shape, margin=margin)
-    boat.set_end_points(x0, xN)
     
-    planner = BoatConfigurationPlanning(boat)
-    S, U, in_hull, on_edge, mp, result1, solve_time = planner.compute_spline_trajectory(x0, xN, opt_angle=False, N=N)
-    success = result1==0
+    if boat_type_init is not None:
+        boat_init = boat_type_init(boat_shape, obstacle_shape)
+        planner = BoatConfigurationPlanning(boat_init)
+        boat_init.set_end_points(x0, xN)
         
-    if opt_angle and success:
-        S, U, in_hull, on_edge, mp, result2, solve_time = planner.compute_spline_trajectory(x0, xN, opt_position=False, N=N, in_hull=in_hull, on_edge=on_edge, S_initialization=S, S_fix_inds=[0,1])
-        success = result2==0
+        S_init, U_init, in_hull, mp, result_init, solve_time_init = planner.compute_spline_trajectory(x0, xN, N=N)
+        success = result_init==0
+    
+    if success:
+        boat = boat_type(boat_shape, obstacle_shape)
+        planner = BoatConfigurationPlanning(boat)
+        boat.set_end_points(x0, xN)
+        
+        S, U, in_hull, mp, result, solve_time = planner.compute_spline_trajectory(x0, xN, N=N, in_hull=in_hull, S_initialization=S_init)
+        success = result==0
 
-    if boat_type is ShapeBoat_spline:
-        S_knots = S
-        U_knots = U
-        S, U = boat_type.knots_to_trajectory(S_knots, U_knots, 40) if success else (None,None)   
-                   
-    return {'boat':          boat, 
+    if success:
+        if boat_type is ShapeBoat_spline:
+            S_knots = S
+            U_knots = U
+            S, U = boat_type.knots_to_trajectory(S_knots, U_knots, 40) if success else (None,None)
+        if plot:  
+            boat.plot_hulls(S, all_hulls=True, text=False)
+            boat.plot_hulls(S, in_hull)
+        
+    return {'boat_init':     boat_init,
+            'boat':          boat,
             'S_knots':       S_knots,
             'U_knots':       U_knots,
+            'S_init':        S_init,
             'S' :            S,
             'U':             U, 
             'in_hull':       in_hull,
-            'on_edge':       on_edge,
-            'result_spline': result1,
-            'result_angle':  result2,
+            'result_init':   result_init,
+            'result':        result,
             'success':       success,
             'metrics':       metrics(U) if success else None
             }
