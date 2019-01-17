@@ -4,15 +4,9 @@ from multiboat_trajectory_optimization.trajectory_planner import BoatConfigurati
 import numpy as np
 import pickle
 
-def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_init=None, boat_type=ShapeBoat_spline, plot=True):
-    result_init = None
-    boat_init   = None
-    S_init      = None
-    U_init      = None
-    S_knots     = None
-    U_knots     = None
-    success     = True
-    in_hull     = None
+def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_init=None, boat_type=ShapeBoat_spline, plot=True, feasible_U=True):
+    result=result_init=boat=boat_init=S=S_init=S_knots=U=U_init=U_knots=in_hull=None
+    success=True
     
     x0 = np.zeros((1, boat_type.num_states))
     xN = np.zeros((1, boat_type.num_states))
@@ -32,17 +26,23 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
         planner = BoatConfigurationPlanning(boat)
         boat.set_end_points(x0, xN)
         
-        S, U, in_hull, mp, result, solve_time = planner.compute_spline_trajectory(x0, xN, N=N, in_hull=in_hull, S_initialization=S_init)
+        S, U, in_hull, mp, result, solve_time = planner.compute_spline_trajectory(x0, xN, S_init, in_hull, N=N)
         success = result==0
-
-    if success:
+        
         if boat_type is ShapeBoat_spline:
             S_knots = S
             U_knots = U
-            S, U = boat_type.knots_to_trajectory(S_knots, U_knots, 40) if success else (None,None)
-        if plot:  
-            boat.plot_hulls(S, all_hulls=True, text=False)
-            boat.plot_hulls(S, in_hull)
+
+            if feasible_U and success:
+                S, U = boat_type.knots_to_feasible_trajectory(S_knots, U_knots)
+            elif success:
+                S, U = boat_type.knots_to_trajectory(S_knots, U_knots, 40)
+            else:
+                S, U = (None, None)
+            
+    if success and plot:  
+        boat.plot_hulls(S, all_hulls=True, text=False)
+        boat.plot_hulls(S, in_hull)
         
     return {'boat_init':     boat_init,
             'boat':          boat,
@@ -57,6 +57,7 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
             'success':       success,
             'metrics':       metrics(U) if success else None
             }
+
 
 def metrics(U):
     return analytics({'U_position_cost': U_position_cost(U), 'U_angle_cost': U_angle_cost(U)})
@@ -74,3 +75,6 @@ def U_angle_cost(U):
 def write_experiment(results, label):
     with open('results/MIQP_'+label+'.pickle', 'wb') as f:
         pickle.dump(results, f)
+        
+def result(test, boat):
+    return shapeshift_trajectory(*tests[test],boat_type=boat, N=11)

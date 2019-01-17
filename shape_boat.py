@@ -5,7 +5,9 @@ from shape import *
 from multiboat_trajectory_optimization.boat_models import *
 from multiboat_trajectory_optimization.trajectory_planner import *
 from shapely.geometry import Point
+from pydrake.all import Variable
 import numpy as np
+import math
 
 class ShapeBoat(ThreeInputBoat, object):
     linear=True
@@ -158,21 +160,23 @@ class ShapeBoat_spline(ShapeBoat, object):
     
     M = 0.5 * np.array([[1, 1, 0],[-2, 2, 0],[1, -2, 1]])
     p_cost_matrix = M.T.dot(np.array([[0, 0, 2]]).T.dot(np.array([[0, 0, 2]])).dot(M))
+    max_U = np.array([0.4, 0.4, 90])
+    U_rate = 5
         
     @classmethod
     def B(cls, u_t):
         return np.array([1, u_t, u_t**2]).dot(cls.M)
     
     @classmethod    
-    def dB_dt(cls, u_t, dN):
-        return np.array([0, 1, 2*u_t]).dot(cls.M)/dN
+    def dB_dt(cls, u_t, dT):
+        return np.array([0, 1, 2*u_t]).dot(cls.M)/dT
     
     @classmethod    
-    def d2B_dt2(cls, u_t, dN):
-        return np.array([0, 0, 2]).dot(cls.M)/dN**2
+    def d2B_dt2(cls, u_t, dT):
+        return np.array([0, 0, 2]).dot(cls.M)/dT**2
     
     @classmethod
-    def knots_to_trajectory(cls, S, U, dN, order=3):
+    def knots_to_trajectory(cls, S, U, dT_target=1, order=3, dT_round=True):
         S_sample = np.zeros((S.shape[0],S.shape[1]+(order-1)+(order-2),S.shape[2]))
         U_sample = np.zeros((U.shape[0],U.shape[1]+2,U.shape[2]))
         S_sample[:,order-1:-order] = S[:,1:-1]
@@ -180,6 +184,15 @@ class ShapeBoat_spline(ShapeBoat, object):
         S_sample[:,-order:] = S[:,-1,:]
         U_sample[:,:-2] = U
 
+        dN = dT_target*cls.U_rate
+        if not dT_round:
+            assert dN.is_integer() 
+        
+        dN = int(math.ceil(dN))
+        dT = float(dN)/cls.U_rate
+        
+        print "Time Scaling target: %f, result: %f" % (dT_target, dT)
+        
         shape = S_sample.shape   
         N = dN*(shape[1]-3)+1
         S_new = np.zeros((1,N,shape[2]))
@@ -191,45 +204,68 @@ class ShapeBoat_spline(ShapeBoat, object):
             p = S_sample[0,knot_ind:knot_ind+3,:2]
 
             S_new[0,x,:2]  = cls.B(knot_fraction).dot(p)
-            S_new[0,x,3:5] = cls.dB_dt(knot_fraction, dN).dot(p)
-            U_new[0,x,:2]  = cls.d2B_dt2(knot_fraction, dN).dot(p)           
-            U_new[0,x,2]   = U_sample[0,knot_ind,2] if knot_fraction<0.5 else U_sample[0,knot_ind,3]
+            S_new[0,x,3:5] = cls.dB_dt(knot_fraction, dT).dot(p)
+            U_new[0,x,:2]  = cls.d2B_dt2(knot_fraction, dT).dot(p)      
+            U_new[0,x,2]   = U_sample[0,knot_ind,2]/dT**2 if knot_fraction<0.5 else U_sample[0,knot_ind,3]
 
         return S_new, U_new
+
+    @classmethod
+    def max_trajectory_U(cls, S, U):
+        S_new, U_new = cls.knots_to_trajectory(S, U, 1)
+        return np.max(U_new[0], axis=0)
+
+    @classmethod
+    def knots_to_feasible_trajectory(cls, S, U):        
+        target_dT = max(cls.max_trajectory_U(S, U)/cls.max_U)**0.5        
+        return  cls.knots_to_trajectory(S, U, target_dT)
     
     @staticmethod        
-    def hull_edge_constraint(h_bool, h_bools, x0, x2, eq, M=100., mp=None):
-        x_avg = (x0+x2)/2
+    def hull_edge_constraint(h_bool, h_bools, a, x0, x2, eq, M=100., mp=None, linear=True):
+        x_avg = a*x0 + (1-a)*x2
         val1 = M*(h_bool+h_bools-2)+eq['b']
         val2 = eq['A'].dot((x_avg[:2]).T)
-        return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=True) if mp is not None else val1<=val2  
+        return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=linear) if mp is not None else val1<=val2  
     
     def add_position_collision_constraints(self, S, in_hull, mp, M=20.):
         super(ShapeBoat_spline, self).add_position_collision_constraints(S, in_hull, mp, M)
         N, H = in_hull.shape
+        
+        if in_hull.dtype == Variable:
+            a = 0.5*np.ones(N-1)
+            linear = True
+        else:
+            a = mp.NewContinuousVariables(N-1)
+            mp.add_leq_constraints(a, np.ones(N-1))
+            mp.add_leq_constraints(-a, np.zeros(N-1))
+            linear = False
         
         for i,hull in enumerate(self.hull_path):
             other_h = [j for j in range(H) if j!=i]
                 
             for t in range(1,N):
                 t_e = t-1
-                in_hulls0 = np.sum(in_hull[t-1, other_h])
-                in_hulls1 = np.sum(in_hull[t  , other_h])
+                in_hulls0 = np.sum(in_hull[t_e,   other_h])
+                in_hulls1 = np.sum(in_hull[t_e+1, other_h])
 
                 self.hull_edge_constraint(in_hull[t][i],      \
                                           in_hulls0,          \
+                                          a[t_e],             \
                                           S[0,t-1,:2],        \
                                           S[0,t+1,:2],        \
                                           hull["polygon_eq"], \
-                                          mp=mp               \
+                                          mp=mp,              \
+                                          linear=linear       \
                                          )
 
                 self.hull_edge_constraint(in_hull[t-1][i],    \
                                           in_hulls1,          \
+                                          a[t_e],             \
                                           S[0,t-1,:2],        \
                                           S[0,t+1,:2],        \
                                           hull["polygon_eq"], \
-                                          mp=mp               \
+                                          mp=mp,              \
+                                          linear=linear       \
                                          )
 
     @classmethod    
@@ -265,7 +301,6 @@ class ShapeBoat_spline(ShapeBoat, object):
             #State transition constraint
             mp.add_equal_constraints(s[[2,5]], s0[[2,5]] + cls.boat_dynamics(s0, u0, am)[[2,5]],linear=cls.linear)
 
-            
             
 def check_vertex_constraints(boat):
     ##Check Contains Functions works properly
