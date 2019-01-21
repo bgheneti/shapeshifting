@@ -5,13 +5,15 @@ from shape import *
 from multiboat_trajectory_optimization.boat_models import *
 from multiboat_trajectory_optimization.trajectory_planner import *
 from shapely.geometry import Point
+from timeit import time
 from pydrake.all import Variable
 import numpy as np
 import math
 
 class ShapeBoat(ThreeInputBoat, object):
-    linear=True
-    num_inputs=4
+    linear = True
+    num_inputs = 4
+    S_transition_inds = range(ThreeInputBoat.num_states)
     
     def __init__(self, boat_shape, obstacle_shape, search=True):
         self.shape = boat_shape
@@ -32,9 +34,14 @@ class ShapeBoat(ThreeInputBoat, object):
         return super(ShapeBoat, self).toGlobalStates(S, state_initial)
 
     def set_end_points(self, x0, xN, all_hulls=False):
+        print "SETTING ENDPOINTS"
+        start = time.time()
         self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
+        print "Calculated C-Space: %f seconds" % (time.time() - start)
+        start = time.time()
         self.g = HullGraph(self.hulls)        
-        
+        print "Set up graph: %f seconds" % (time.time() - start)
+
         if self.search:
             self.path  = self.g.point_path(Point(*x0[0,:2]), Point(*xN[0,:2]), x0[0, 2], xN[0,2])
         else:
@@ -58,7 +65,7 @@ class ShapeBoat(ThreeInputBoat, object):
         plot_hulls(chosen_hulls, None if S is None else (S[0,:,0], S[0,:,1]), text=text)
         
     @staticmethod        
-    def hull_constraint(h_bool, x, eq, M=100., mp=None):
+    def hull_constraint(h_bool, x, eq, M=20., mp=None):
         val1 = M*(h_bool-1)+eq['b']
         val2 = eq['A'].dot((x[:2]).T)
         return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=True) if mp is not None else val1<=val2
@@ -77,22 +84,21 @@ class ShapeBoat(ThreeInputBoat, object):
         val3 = M*(1-h_bool)+max_angle-min_angle
         return mp.add_leq_constraints([val1-val2, -val3+val2],[0, 0], linear=True) if mp is not None else val1<=val2<=val3
 
-    @staticmethod
-    def add_integer_constraints(in_hull, mp):
+    def add_integer_constraints(self, in_hull, mp):
         N, H = in_hull.shape  
+        if self.search:
+            mp.AddLinearConstraint(in_hull[0][0]==1)
+            mp.AddLinearConstraint(in_hull[-1][-1]==1)   
 
-        mp.AddLinearConstraint(in_hull[0][0]==1)
-        mp.AddLinearConstraint(in_hull[-1][-1]==1)   
-        
-        for t in range(N-1):
-            for i in range(H):  
-                    if i>1:
-                        mp.AddLinearConstraint(2*(1-in_hull[t][i])>=in_hull[t+1][i-1])
-                    if i<H-1:
-                        mp.AddLinearConstraint((in_hull[t][i]-1)+1<=in_hull[t+1][i]+in_hull[t+1][i+1])
-                    
-            #reduce searchspace if traversing hulls sequentially
-            mp.AddLinearConstraint(in_hull[t][H-1]<=in_hull[t+1][H-1])
+            for t in range(N-1):
+                for i in range(H):  
+                        if i>1:
+                            mp.AddLinearConstraint(2*(1-in_hull[t][i])>=in_hull[t+1][i-1])
+                        if i<H-1:
+                            mp.AddLinearConstraint((in_hull[t][i]-1)+1<=in_hull[t+1][i]+in_hull[t+1][i+1])
+
+                #reduce searchspace if traversing hulls sequentially
+                mp.AddLinearConstraint(in_hull[t][H-1]<=in_hull[t+1][H-1])
 
     def add_position_collision_constraints(self, S, in_hull, mp, M=20.):
         for t in range(S.shape[1]-1):
@@ -135,9 +141,13 @@ class ShapeBoat(ThreeInputBoat, object):
         derivs[4] = u[1]
         derivs[5] = .5*u[2] + .5*u[3]
         return derivs
-                                       
+
     @classmethod
-    def add_transition_constraints(cls, S, U, angle_mod, mp):
+    def add_transition_constraints(cls, S, U, angle_mod, mp, S_fix_inds=None):
+        if S_fix_inds is None:
+            S_fix_inds = []
+            
+        inds = [x for x in cls.S_transition_inds if x not in S_fix_inds]
         for k in range(1,S.shape[1]):        
             u0 = U[0,k-1] #old input
             s0 = S[0,k-1] #old state
@@ -145,15 +155,15 @@ class ShapeBoat(ThreeInputBoat, object):
             am = angle_mod[k-1]
 
             #State transition constraint
-            mp.add_equal_constraints(s, s0 + cls.boat_dynamics(s0, u0, am),linear=cls.linear)
+            mp.add_equal_constraints(s[inds], s0[inds] + cls.boat_dynamics(s0, u0, am)[inds],linear=cls.linear)
                                        
     @staticmethod
     def add_input_position_cost(S, U, mp):
-        return mp.AddQuadraticCost(np.sum(U[0,:,:2]**2))
+        return mp.AddQuadraticCost(100*np.sum(U[0,:,:2]**2))
 
     @staticmethod
     def add_input_angle_cost(S, U, mp):
-        return mp.AddQuadraticCost(np.sum((U[0,:,2:]/100)**2))
+        return mp.AddQuadraticCost(np.sum((U[0,:,2:]/10)**2))
 
 
 class ShapeBoat_spline(ShapeBoat, object):
@@ -162,6 +172,8 @@ class ShapeBoat_spline(ShapeBoat, object):
     p_cost_matrix = M.T.dot(np.array([[0, 0, 2]]).T.dot(np.array([[0, 0, 2]])).dot(M))
     max_U = np.array([0.4, 0.4, 90])
     U_rate = 5
+    
+    S_transition_inds = [2,5]
         
     @classmethod
     def B(cls, u_t):
@@ -176,20 +188,23 @@ class ShapeBoat_spline(ShapeBoat, object):
         return np.array([0, 0, 2]).dot(cls.M)/dT**2
     
     @classmethod
-    def knots_to_trajectory(cls, S, U, dT_target=1, order=3, dT_round=True):
+    def knots_to_trajectory(cls, S, U, dT_target=1, order=3, dT_round=True, U_rate=None):
         S_sample = np.zeros((S.shape[0],S.shape[1]+(order-1)+(order-2),S.shape[2]))
         U_sample = np.zeros((U.shape[0],U.shape[1]+2,U.shape[2]))
         S_sample[:,order-1:-order] = S[:,1:-1]
         S_sample[:,:order-1] = S[:,0,:]
         S_sample[:,-order:] = S[:,-1,:]
         U_sample[:,:-2] = U
+        
+        if U_rate is None:
+            U_rate = cls.U_rate
 
-        dN = dT_target*cls.U_rate
+        dN = dT_target*U_rate
         if not dT_round:
             assert dN.is_integer() 
         
         dN = int(math.ceil(dN))
-        dT = float(dN)/cls.U_rate
+        dT = float(dN)/U_rate
         
         print "Time Scaling target: %f, result: %f" % (dT_target, dT)
         
@@ -221,9 +236,9 @@ class ShapeBoat_spline(ShapeBoat, object):
         return  cls.knots_to_trajectory(S, U, target_dT)
     
     @staticmethod        
-    def hull_edge_constraint(h_bool, h_bools, a, x0, x2, eq, M=100., mp=None, linear=True):
+    def hull_edge_constraint(h_bool0, h_bool1, a, x0, x2, eq, M=20., mp=None, linear=True):
         x_avg = a*x0 + (1-a)*x2
-        val1 = M*(h_bool+h_bools-2)+eq['b']
+        val1 = M*(h_bool0-h_bool1-1)+eq['b']
         val2 = eq['A'].dot((x_avg[:2]).T)
         return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=linear) if mp is not None else val1<=val2  
     
@@ -241,15 +256,12 @@ class ShapeBoat_spline(ShapeBoat, object):
             linear = False
         
         for i,hull in enumerate(self.hull_path):
-            other_h = [j for j in range(H) if j!=i]
                 
             for t in range(1,N):
                 t_e = t-1
-                in_hulls0 = np.sum(in_hull[t_e,   other_h])
-                in_hulls1 = np.sum(in_hull[t_e+1, other_h])
 
                 self.hull_edge_constraint(in_hull[t][i],      \
-                                          in_hulls0,          \
+                                          in_hull[t-1][i],    \
                                           a[t_e],             \
                                           S[0,t-1,:2],        \
                                           S[0,t+1,:2],        \
@@ -259,7 +271,7 @@ class ShapeBoat_spline(ShapeBoat, object):
                                          )
 
                 self.hull_edge_constraint(in_hull[t-1][i],    \
-                                          in_hulls1,          \
+                                          in_hull[t][i],      \
                                           a[t_e],             \
                                           S[0,t-1,:2],        \
                                           S[0,t+1,:2],        \
@@ -281,7 +293,7 @@ class ShapeBoat_spline(ShapeBoat, object):
                 P[1] = P[2] = S[0,T-1,:2]
             else:
                 P=S[0,k-1:k+2,:2]
-            mp.AddQuadraticCost(np.sum(np.multiply(cls.p_cost_matrix.dot(P),P)))
+            mp.AddQuadraticCost(100*np.sum(np.multiply(cls.p_cost_matrix.dot(P),P)))
 
     @staticmethod              
     def boat_dynamics(s, u, am):
@@ -289,18 +301,6 @@ class ShapeBoat_spline(ShapeBoat, object):
         derivs[2] = s[5] + .375*u[2] + .125*u[3] + 360*(am[0]-am[1])
         derivs[5] = .5*u[2] + .5*u[3]
         return derivs
-    
-    @classmethod                                                    
-    def add_transition_constraints(cls, S, U, angle_mod, mp):
-        for k in range(1,S.shape[1]):        
-            u0 = U[0,k-1] #old input
-            s0 = S[0,k-1] #old state
-            s  = S[0,k]   #new state
-            am = angle_mod[k-1]
-
-            #State transition constraint
-            mp.add_equal_constraints(s[[2,5]], s0[[2,5]] + cls.boat_dynamics(s0, u0, am)[[2,5]],linear=cls.linear)
-
             
 def check_vertex_constraints(boat):
     ##Check Contains Functions works properly
