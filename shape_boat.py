@@ -170,7 +170,7 @@ class ShapeBoat_spline(ShapeBoat, object):
     
     M = 0.5 * np.array([[1, 1, 0],[-2, 2, 0],[1, -2, 1]])
     p_cost_matrix = M.T.dot(np.array([[0, 0, 2]]).T.dot(np.array([[0, 0, 2]])).dot(M))
-    max_U = np.array([0.4, 0.4, 90])
+    max_U = np.array([0.05, 0.05, 15])
     U_rate = 5
     
     S_transition_inds = [2,5]
