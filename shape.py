@@ -9,7 +9,7 @@ from pyclipper import MinkowskiSum, scale_from_clipper as from_clipper, scale_to
 
 class Shape:
     def __init__(self, shapes):
-        self.blocks = shapes
+        self.blocks = np.concatenate([s.blocks for s in shapes])
         self.polygon = ops.cascaded_union([s.polygon for s in shapes]) 
         self.subblocks = np.concatenate([s.subblocks for s in shapes])
         
@@ -61,9 +61,9 @@ class Shape:
         else:
             return [zip(*b.coords.xy)[:-1]]
         
-    def calc_hulls(self, msum=None, area=None, buffer=0.2):
+    def calc_hulls(self, msum=None, area=None, buffer=0.25, radius=4.):
         if area is None:
-            area = self.rectangle(0,0,8,8)
+            area = self.rectangle(0,0,radius,radius)
         polys = self.split_poly_boundaries(area)
 
         if msum is None:
@@ -77,13 +77,13 @@ class Shape:
     def msum(self, bounds_a, bounds_b):
         return geometry.Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
 
-    def buffered_msum(self, msum, buffer=0.2):
-        return msum.simplify(0.01).buffer(buffer,cap_style=3).simplify(0.1)
+    def buffered_msum(self, msum, buffer=0.3):
+        return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.1)
     
     def free_rectangle(self, msum, x, dx, dy):
         return self.rectangle(x[0], x[1], dx, dy).difference(msum)
     
-    def trim_buffer(self, msums, buffered_msums, x, dx=.25, dy=.25):
+    def trim_buffer(self, msums, buffered_msums, x, dx=.3, dy=.3):
         if x is not None:
             angles = (x[2], x[2])
             buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x, dx, dy))
@@ -92,6 +92,7 @@ class Shape:
         angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
         bounds_a = self.bounds(self.polygon)
         bounds_B = {(a,b): self.bounds_rotate(shape_b.polygon, a, b) for a,b in angle_ranges}
+        radius = self.radius()+shape_b.radius()
 
         msums = {angles: self.msum(bounds_a,bounds_b) for angles,bounds_b in bounds_B.items()}
         buffered_msums = {angles: self.buffered_msum(msum) for angles,msum in msums.items()}
@@ -99,7 +100,7 @@ class Shape:
         self.trim_buffer(msums, buffered_msums, x0)
         self.trim_buffer(msums, buffered_msums, xN)
 
-        hulls = {angle_range: self.calc_hulls(msum) for angle_range,msum in buffered_msums.items()}
+        hulls = {angle_range: self.calc_hulls(msum, radius=radius) for angle_range,msum in buffered_msums.items()}
 
         return msums, hulls
 
@@ -110,7 +111,12 @@ class Shape:
         plt.show()
         
 class Block(Shape):
-    def __init__(self, x, y, theta=0, width=1, height=0.5):
+    def __init__(self, x, y, theta=0, width=1, height=0.5, scale=1):
+        x*= scale
+        y*= scale
+        width *= scale
+        height *= scale
+        
         self.x      = float(x)
         self.y      = float(y)
         self.height = float(height)

@@ -1,3 +1,4 @@
 *.pyc
 .ipynb_checkpoints/*
 *.pkl
+results/MIQP_result_dT=1*

@@ -38,7 +38,6 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
             U_knots = U
 
             if feasible_U and success:
-                print("TESTTESTTEST")
                 S, U = boat_type.knots_to_feasible_trajectory(S_knots, U_knots)
             elif success:
                 S, U = boat_type.knots_to_trajectory(S_knots, U_knots, dT_target=1)
@@ -46,8 +45,8 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
                 S, U = (None, None)
             
     if success and plot:  
-        boat.plot_hulls(S, all_hulls=True, text=False)
-        boat.plot_hulls(S, in_hull)
+        boat.plot_hulls(S, S_knots, all_hulls=True, text=False)
+        boat.plot_hulls(S, S_knots, in_hull)
                 
     return {'boat_init':        boat_init,
             'boat':             boat,
@@ -83,7 +82,7 @@ def U_angle_cost(U):
     return U[0,:,2]**2
         
 def experiment(test, boat_init, boat):
-    return shapeshift_trajectory(*test,boat_type=boat, boat_type_init=boat_init, N=11)
+    return shapeshift_trajectory(*test,boat_type=boat, boat_type_init=boat_init, N=10)
 
 def experiments(tests, boats):
     return {boat:{test: experiment(tests[test], *boats[boat]) for test in tests} for boat in boats}
@@ -123,7 +122,6 @@ def results_table(experiments, latex=False):
     col_names = ['experiment'] + metric_cols
     
     vals = lambda k,v: [k]+[v['metrics'][m] for m in metric_cols]
-    print type(experiments.items())
     row_vals = [vals(*x) for x in sorted(experiments.items(),key=lambda y: y[0])]
     
     if latex:
