@@ -78,7 +78,7 @@ class Shape:
         return geometry.Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
 
     def buffered_msum(self, msum, buffer=0.3):
-        return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.1)
+        return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.01)
     
     def free_rectangle(self, msum, x, dx, dy):
         return self.rectangle(x[0], x[1], dx, dy).difference(msum)
@@ -135,7 +135,7 @@ class Block(Shape):
         self.subblocks = np.array([affinity.rotate(b, self.theta,origin=center).centroid.xy for b in self.subblocks])\
                            .reshape(2,2)
 
-def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
+def plot_hulls(hulls, path=None, text=True, figure=True, color='black', hull_color=None):
     if figure:
         plt.figure(figsize=(10,10))
 
@@ -143,7 +143,7 @@ def plot_hulls(hulls, path=None, text=True, figure=True, color='black'):
     for i, hull in enumerate(hulls):
         X,Y = hull.boundary.xy
         [x],[y] = hull.centroid.xy
-        plt.plot(X,Y,'-',linewidth=4)
+        plt.plot(X,Y,'-',linewidth=4,color=hull_color)
         ax = plt.gca()
         #ax.set_facecolor((0,0,0))
         if text:

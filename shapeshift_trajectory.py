@@ -6,7 +6,7 @@ import numpy as np
 import pickle
 import copy
 
-def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_init=None, boat_type=ShapeBoat_spline, plot=True, feasible_U=True):
+def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_init=None, boat_type=ShapeBoat_spline, plot=True, feasible_U=False):
     result=result_init=boat=boat_init=S=S_init=S_knots=U=U_init=U_knots=in_hull=solve_time=solve_time_init=None
     success=True
     opt_angle=True

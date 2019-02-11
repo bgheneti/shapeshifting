@@ -39,7 +39,8 @@ class ShapeBoat(ThreeInputBoat, object):
                         
         assert S.shape[0]==1
         
-        theta = S[0,:,2]
+        theta = S[0,:,2]/180*np.pi
+        
         sin = np.sin(theta)
         cos = np.cos(theta)
         zeros = np.zeros(len(theta))
@@ -48,7 +49,9 @@ class ShapeBoat(ThreeInputBoat, object):
         
         S_subblocks = np.vstack([np.dstack([cos*x-sin*y, sin*x+cos*y, theta, zeros, zeros, zeros]) for x,y in centroids])
         
-        return S_subblocks + S
+        S_subblocks[:,:,:2] += S[:,:,:2]
+                
+        return S_subblocks
     
     def plot_configurations(self, S, stride=5):
         return super(ShapeBoat, self).plot_configurations(self.toBoatPlotStates(S), stride=stride)
@@ -76,7 +79,7 @@ class ShapeBoat(ThreeInputBoat, object):
                             "max_angle":  self.g.vertex_properties["max_angle"][i]} for i in self.path]
         self.plot_hulls()
         
-    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True):
+    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False):
         if all_hulls:
             chosen_hulls = [x for hulls in self.hulls.values() for x in hulls]
         else: 
@@ -87,8 +90,9 @@ class ShapeBoat(ThreeInputBoat, object):
             chosen_hulls = [self.hull_path[i]['polygon'] for i in chosen_i]
   
         plt.figure(figsize=(10,10))
+        plot_hulls([x for hulls in self.hulls.values() for x in hulls] if both else [], None if S_knots is None else (S_knots[0,:,0], S_knots[0,:,1]), figure=False, color='red', hull_color='black', text=text)
         plot_hulls(chosen_hulls, None if S is None else (S[0,:,0], S[0,:,1]), text=text, figure=False)
-        plot_hulls([], None if S_knots is None else (S_knots[0,:,0], S_knots[0,:,1]), figure=False, color='red')
+
         plt.tick_params(labelsize='15')
         plt.xlabel('x (m)', fontsize='15')
         plt.ylabel('y (m)', fontsize='15')
@@ -221,6 +225,7 @@ class ShapeBoat_spline(ShapeBoat, object):
     
     @classmethod
     def knots_to_trajectory(cls, S, U, dT_target=1, order=3, dT_round=True, U_rate=None):
+        print "trajs", S.shape, U.shape
         S_sample = np.zeros((S.shape[0],S.shape[1]+(order-1)+(order-2),S.shape[2]))
         U_sample = np.zeros((U.shape[0],U.shape[1]+2,U.shape[2]))
         S_sample[:,order-1:-order] = S[:,1:-1]
@@ -252,9 +257,16 @@ class ShapeBoat_spline(ShapeBoat, object):
 
             S_new[0,x,:2]  = cls.B(knot_fraction).dot(p)
             S_new[0,x,3:5] = cls.dB_dt(knot_fraction, dT).dot(p)
-            U_new[0,x,:2]  = cls.d2B_dt2(knot_fraction, dT).dot(p)      
-            U_new[0,x,2]   = U_sample[0,knot_ind,2]/dT**2 if knot_fraction<0.5 else U_sample[0,knot_ind,3]
+            U_new[0,x,:2]  = cls.d2B_dt2(knot_fraction, dT).dot(p) 
+            U_new[0,x,2]   = U_sample[0,knot_ind,2]/dT**2 if knot_fraction<0.5 else U_sample[0,knot_ind,3]/dT**2
+            
+            if x>0:
+                S_new[0,x,5] = S_new[0,x-1,5] + U_new[0,x-1,2]/U_rate
+                S_new[0,x,2] = S_new[0,x-1,2] + S_new[0,x-1,5]/U_rate + 0.5*U_new[0,x-1,2]/U_rate**2        
+            
         return S_new, U_new
+    
+    
 
     @classmethod
     def max_trajectory_U(cls, S, U):
