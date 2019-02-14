@@ -1,6 +1,6 @@
 import numpy as np
 import shapely.ops as ops
-import shapely.geometry as geometry
+from shapely.geometry import Point, Polygon
 import matplotlib.pyplot as plt
 import shapely.affinity as affinity
 from pypolypart import pypolypart
@@ -15,7 +15,7 @@ class Shape:
         
     @staticmethod
     def rectangle(x, y, dx, dy):
-        return geometry.Polygon([(x+i*dx,y+j*dy) for i,j in [(1,1),(-1,1),(-1,-1),(1,-1)]])
+        return Polygon([(x+i*dx,y+j*dy) for i,j in [(1,1),(-1,1),(-1,-1),(1,-1)]])
     
     @staticmethod    
     def plot_polygons(polygons):
@@ -42,7 +42,7 @@ class Shape:
             return np.array(list(reversed((zip(*polygon.boundary.xy)))))
         
     def polygon_rotate(self, polygon, theta):
-            return affinity.rotate(polygon,theta,geometry.Point(0,0))
+            return affinity.rotate(polygon,theta,Point(0,0))
         
     def polygon_rotate_range(self, polygon, theta1, theta2, num):
         return ops.cascaded_union([self.polygon_rotate(polygon, t) for t in np.linspace(theta1, theta2, num)])
@@ -72,20 +72,25 @@ class Shape:
         else:
             holes = self.split_poly_boundaries(msum)
             
-        return [geometry.Polygon(p) for p in pypolypart.polys_to_tris_and_hulls(polys, holes)["hulls"]]
+        return [Polygon(p) for p in pypolypart.polys_to_tris_and_hulls(polys, holes)["hulls"]]
     
     def msum(self, bounds_a, bounds_b):
-        return geometry.Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
+        return Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
 
     def buffered_msum(self, msum, buffer=0.3):
         return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.01)
     
-    def free_rectangle(self, msum, x, dx, dy):
+    def free_rectangle(self, msum, x, dx, dy, e=0.01):
+        if Point(x[0]+dx+e,x[1]).intersects(msum)!=Point(x[0]-dx-e,x[1]).intersects(msum):
+            dy = 0.1            
+        elif Point(x[0],x[1]+dy+e).intersects(msum)!=Point(x[0],x[1]-dy-e).intersects(msum):
+            dx = 0.1     
         return self.rectangle(x[0], x[1], dx, dy).difference(msum)
     
     def trim_buffer(self, msums, buffered_msums, x, dx=.3, dy=.3):
         if x is not None:
             angles = (x[2], x[2])
+            print angles
             buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x, dx, dy))
         
     def c_space_rotate(self, shape_b, x0=None, xN=None):
@@ -127,7 +132,7 @@ class Block(Shape):
         self.polygon = self.rectangle(x, y, self.width/2, self.height/2)
         self.polygon = affinity.rotate(self.polygon, float(theta))
         
-        center = geometry.point.Point(x,y)
+        center = Point(x,y)
         
         self.subblocks = [ self.rectangle(self.x-self.width/4, self.y, self.width/4, self.height/4),
                            self.rectangle(self.x+self.width/4, self.y, self.width/4, self.height/4) ]

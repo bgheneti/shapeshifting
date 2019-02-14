@@ -9,6 +9,8 @@ from timeit import time
 from pydrake.all import Variable
 import numpy as np
 import math
+from collections import Iterable
+
 
 class ShapeBoat(ThreeInputBoat, object):
     linear = True
@@ -65,7 +67,10 @@ class ShapeBoat(ThreeInputBoat, object):
         self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
         print "Calculated C-Space: %f seconds" % (time.time() - start)
         start = time.time()
-        self.g = HullGraph(self.hulls)        
+        self.g = HullGraph(self.hulls)    
+        
+        self.plot_hulls(all_hulls=True)
+        
         print "Set up graph: %f seconds" % (time.time() - start)
 
         if self.search:
@@ -119,20 +124,11 @@ class ShapeBoat(ThreeInputBoat, object):
         return mp.add_leq_constraints([val1-val2, -val3+val2],[0, 0], linear=True) if mp is not None else val1<=val2<=val3
 
     def add_integer_constraints(self, in_hull, mp):
-        N, H = in_hull.shape  
-        if self.search:
-            mp.AddLinearConstraint(in_hull[0][0]==1)
-            mp.AddLinearConstraint(in_hull[-1][-1]==1)   
-
-            for t in range(N-1):
-                for i in range(H):  
-                        if i>1:
-                            mp.AddLinearConstraint(2*(1-in_hull[t][i])>=in_hull[t+1][i-1])
-                        if i<H-1:
-                            mp.AddLinearConstraint((in_hull[t][i]-1)+1<=in_hull[t+1][i]+in_hull[t+1][i+1])
-
-                #reduce searchspace if traversing hulls sequentially
-                mp.AddLinearConstraint(in_hull[t][H-1]<=in_hull[t+1][H-1])
+        N, H = in_hull.shape       
+        for t in range(N-1):
+            for i in range(H):  
+                mp.AddLinearConstraint(in_hull[t][i]<=1-np.sum(in_hull[t+1][i-1:i]))            
+                mp.AddLinearConstraint(in_hull[t][i]<=np.sum(in_hull[t+1][i:i+2])) 
 
     def add_position_collision_constraints(self, S, in_hull, opt_hull, mp, M=20.):
         for t in range(S.shape[1]-1):
@@ -159,13 +155,13 @@ class ShapeBoat(ThreeInputBoat, object):
                                              mp=mp               \
                                             )       
 
-                        cls.angular_velocity_constraint(                                         
-                                             in_hull[t][i],      \
-                                             S[0,t+dt],          \
-                                             hull["min_angle"],  \
-                                             hull["max_angle"],  \
-                                             mp=mp               \
-                                            )
+#                         cls.angular_velocity_constraint(                                         
+#                                              in_hull[t][i],      \
+#                                              S[0,t+dt],          \
+#                                              hull["min_angle"],  \
+#                                              hull["max_angle"],  \
+#                                              mp=mp               \
+#                                             )
                                        
     @staticmethod
     def boat_dynamics(s, u, am):
