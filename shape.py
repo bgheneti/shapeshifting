@@ -81,16 +81,20 @@ class Shape:
         return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.01)
     
     def free_rectangle(self, msum, x, dx, dy, e=0.01):
-        if Point(x[0]+dx+e,x[1]).intersects(msum)!=Point(x[0]-dx-e,x[1]).intersects(msum):
+        
+        latch_sideways=Point(x[0]+dx+e,x[1]).intersects(msum)!=Point(x[0]-dx-e,x[1]).intersects(msum)
+        latch_topdown=Point(x[0],x[1]+dy+e).intersects(msum)!=Point(x[0],x[1]-dy-e).intersects(msum)
+        
+        if latch_sideways and not latch_topdown:
             dy = 0.1            
-        elif Point(x[0],x[1]+dy+e).intersects(msum)!=Point(x[0],x[1]-dy-e).intersects(msum):
-            dx = 0.1     
+        elif latch_topdown and not latch_sideways:
+            dx = 0.1
+
         return self.rectangle(x[0], x[1], dx, dy).difference(msum)
     
     def trim_buffer(self, msums, buffered_msums, x, dx=.3, dy=.3):
         if x is not None:
             angles = (x[2], x[2])
-            print angles
             buffered_msums[(angles)] = buffered_msums[angles].difference(self.free_rectangle(msums[angles], x, dx, dy))
         
     def c_space_rotate(self, shape_b, x0=None, xN=None):

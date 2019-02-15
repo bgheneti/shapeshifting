@@ -47,9 +47,9 @@ class ShapeBoat(ThreeInputBoat, object):
         cos = np.cos(theta)
         zeros = np.zeros(len(theta))
         
-        centroids = [(block.x,block.y) for block in shape.blocks]
+        centroids = [(block.x,block.y,block.theta/180*np.pi) for block in shape.blocks]
         
-        S_subblocks = np.vstack([np.dstack([cos*x-sin*y, sin*x+cos*y, theta, zeros, zeros, zeros]) for x,y in centroids])
+        S_subblocks = np.vstack([np.dstack([cos*x-sin*y, sin*x+cos*y, theta+t, zeros, zeros, zeros]) for x,y,t in centroids])
         
         S_subblocks[:,:,:2] += S[:,:,:2]
                 
@@ -57,20 +57,36 @@ class ShapeBoat(ThreeInputBoat, object):
     
     def plot_configurations(self, S, stride=5):
         return super(ShapeBoat, self).plot_configurations(self.toBoatPlotStates(S), stride=stride)
+    
+    def plot_both_configurations(self, S):
+        confs1 = self.toBoatPlotStates(np.array([[[0,0,0,0,0,0]]]), shape=self.obstacle_shape)
+        confs2 = self.toBoatPlotStates(S)[:,:]
+        
+        plot = plt.subplots(nrows=1,ncols=1, figsize=(16,16))
+                  
+        super(ShapeBoat, self).plot_configurations(confs1,boat_color='gainsboro',edge_color='silver',edge_width=5,plot=plot)
+        super(ShapeBoat, self).plot_configurations(confs2,boat_color='black',edge_color='silver', edge_width=5, plot=plot, stride=3)
+        plt.axis('equal')
+        plt.xlabel('x (m)', fontsize='15')
+        plt.ylabel('y (m)', fontsize='15')
+        plt.tick_params(labelsize='15')
+        plt.show()
         
     def plot_animation(self, S, input_trajectories=None, show_regions=False):
-        return super(ShapeBoat, self).plot_animation(self.toBoatPlotStates(S), input_trajectories=input_trajectories, show_regions=show_regions)
+        confs1 = self.toBoatPlotStates(np.array([[[0,0,0,0,0,0] for i in range(S.shape[1])]]), shape=self.obstacle_shape)
+        confs2 = self.toBoatPlotStates(S)[:,:]
+        
+        confs = np.vstack((confs1,confs2))
+        
+        return super(ShapeBoat, self).plot_animation(confs, input_trajectories=input_trajectories, show_regions=show_regions)
         
     def set_end_points(self, x0, xN, all_hulls=False):
-        print "SETTING ENDPOINTS"
+        print bold("SETTING ENDPOINTS")
         start = time.time()
         self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
         print "Calculated C-Space: %f seconds" % (time.time() - start)
         start = time.time()
-        self.g = HullGraph(self.hulls)    
-        
-        self.plot_hulls(all_hulls=True)
-        
+        self.g = HullGraph(self.hulls)            
         print "Set up graph: %f seconds" % (time.time() - start)
 
         if self.search:
@@ -82,7 +98,6 @@ class ShapeBoat(ThreeInputBoat, object):
                             "polygon_eq": self.g.vertex_properties["polygon_eq"][i], \
                             "min_angle":  self.g.vertex_properties["min_angle"][i],  \
                             "max_angle":  self.g.vertex_properties["max_angle"][i]} for i in self.path]
-        self.plot_hulls()
         
     def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False):
         if all_hulls:
