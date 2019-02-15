@@ -155,13 +155,13 @@ class ShapeBoat(ThreeInputBoat, object):
                                              mp=mp               \
                                             )       
 
-#                         cls.angular_velocity_constraint(                                         
-#                                              in_hull[t][i],      \
-#                                              S[0,t+dt],          \
-#                                              hull["min_angle"],  \
-#                                              hull["max_angle"],  \
-#                                              mp=mp               \
-#                                             )
+                        cls.angular_velocity_constraint(                                         
+                                             in_hull[t][i],      \
+                                             S[0,t+dt],          \
+                                             hull["min_angle"],  \
+                                             hull["max_angle"],  \
+                                             mp=mp               \
+                                            )
                                        
     @staticmethod
     def boat_dynamics(s, u, am):
