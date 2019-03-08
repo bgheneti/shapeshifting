@@ -46,7 +46,7 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
             
     if success and plot:  
         boat.plot_hulls(S, S_knots, all_hulls=True, text=False)
-        boat.plot_hulls(S, S_knots, in_hull)
+        boat.plot_hulls(S, in_hull=in_hull, text=False)
                 
     return {'boat_init':        boat_init,
             'boat':             boat,
@@ -59,30 +59,30 @@ def shapeshift_trajectory(boat_shape, obstacle_shape, xy0, xyN, N=15, boat_type_
             'result_init':      result_init,
             'result':           result,
             'success':          success,
-            'metrics':          metrics(U, solve_time_init, solve_time_final) if success else None    
+            'metrics':          metrics(U, solve_time_init, solve_time_final, N) if success else None    
             }
 
 
-def metrics(U, solve_time_init, solve_time_final):
-    x = analytics({'pos_cost': U_position_cost(U), 'ang_cost': U_angle_cost(U)}) 
+def metrics(U, solve_time_init, solve_time_final, N):
+    x = analytics({'pos_cost': U_position_cost(U), 'ang_cost': U_angle_cost(U)}, N) 
     x.update({'solve_time_init':solve_time_init, 'solve_time_final': solve_time_final, 'solve_time': total_solve_time(solve_time_init, solve_time_final)})
     return x
 
 def total_solve_time(solve_time_init, solve_time_final):
     return solve_time_final + (solve_time_init if solve_time_init is not None else 0.)
 
-def analytics(costs):
-    analytic_ops = [('_avg', np.average)]
+def analytics(costs, N):
+    analytic_ops = [('_avg', np.average),('_total', lambda x: N*np.average(x))]
     return {k+fk:fv(v) for k,v in costs.items() for fk,fv in analytic_ops}
      
 def U_position_cost(U):
-    return 100*np.sum(U[0,:,:2]**2,axis=1)
+    return np.sum(U[0,:,:2]**2,axis=1)
 
 def U_angle_cost(U):
-    return U[0,:,2]**2
+    return U[0,:,2]**2/10
         
 def experiment(test, boat_init, boat):
-    return shapeshift_trajectory(*test,boat_type=boat, boat_type_init=boat_init, N=10)
+    return shapeshift_trajectory(*test,boat_type=boat, boat_type_init=boat_init, N=11, feasible_U=False)
 
 def experiments(tests, boats):
     return {boat:{test: experiment(tests[test], *boats[boat]) for test in tests} for boat in boats}
@@ -106,7 +106,7 @@ def bold_mins(results):
             for experiment in results.values()[0]:
                 val = min([results[i][experiment]['metrics'][metric] for i in results])
                 inds = [i for i in results if results[i][experiment]['metrics'][metric]==val]
-                if len(inds)<3:
+                if len(inds)<len(results):
                     for ind in inds:
                         results[ind][experiment]['metrics'][metric] = '\\textbf{%s}' % "{0:.3f}".format(results[ind][experiment]['metrics'][metric])
                                                                       
@@ -118,7 +118,7 @@ def rows_to_latex(rows):
     return [[parse(v) for v in row[:-1]]+[parse(row[-1])+' \\\\'] for row in rows]
         
 def results_table(experiments, latex=False):
-    metric_cols = ['solve_time_init','solve_time_final','solve_time','pos_cost_avg','ang_cost_avg']
+    metric_cols = ['solve_time_init','solve_time_final','solve_time','pos_cost_total','ang_cost_total']
     col_names = ['experiment'] + metric_cols
     
     vals = lambda k,v: [k]+[v['metrics'][m] for m in metric_cols]

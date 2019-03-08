@@ -1,6 +1,7 @@
 import collections
 import numpy as np
 from graph_tool import Graph, search, generation, draw
+from timeit import time
 
 class Visitor(search.BFSVisitor):
     def __init__(self, pred, dist):
@@ -67,22 +68,22 @@ class HullGraph(Graph):
         
         angle_V = []
         
+        start = time.time()
         for (min_angle, max_angle),H in hulls.items():
             e2h, vertices = extract_edges(H, min_angle, max_angle)
             angle_V.append([min_angle, max_angle, vertices])
             add_edges_from_hull_dict(e2h)
             
+        start = time.time()
+            
         for i in range(len(angle_V)):
             for j in range(i+1, len(angle_V)):
                 if angle_V[j][0]<=angle_V[i][0]<=angle_V[j][1] or angle_V[j][0]<=angle_V[i][1]<=angle_V[j][1] or (angle_V[i][0]<angle_V[j][0] and angle_V[j][1]<=angle_V[i][1]):
-                    v = 0
                     for v1 in angle_V[i][2]:
                         for v2 in angle_V[j][2]:
-                            intersection = g.v_poly[v1].intersection(g.v_poly[v2])
-                            if intersection.length>0:
-                                v+=0
+                            if g.v_poly[v1].intersection(g.v_poly[v2]).length>0:
                                 edge = g.add_edge(g.vertex(v1),g.vertex(v2))
-                                g.edge_dict[g.edge_index[edge]] = edge
+                                #g.edge_dict[g.edge_index[edge]] = edge
                                 #g.edge_properties["points"][edge] = np.array(zip(*intersection.boundary.xy))            
        
     def line_graph(g):

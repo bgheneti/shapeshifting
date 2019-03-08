@@ -4,6 +4,7 @@ from shapely.geometry import Point, Polygon
 import matplotlib.pyplot as plt
 import shapely.affinity as affinity
 from pypolypart import pypolypart
+from timeit import time
 
 from pyclipper import MinkowskiSum, scale_from_clipper as from_clipper, scale_to_clipper as to_clipper
 
@@ -32,23 +33,23 @@ class Shape:
 
     def radius(self):
         corners = np.array(self.polygon.convex_hull.boundary.xy).T
-        return max([np.linalg.norm(c1-c2) for c1 in corners for c2 in corners])     
+        return max([np.linalg.norm(c1-c2) for c1 in corners for c2 in corners])/2.     
     
     ########################
     #Calc Hulls for Rotation
     ########################
     
     def bounds(self, polygon):
-            return np.array(list(reversed((zip(*polygon.boundary.xy)))))
+        return np.array(list(reversed((zip(*polygon.boundary.xy)))))
         
     def polygon_rotate(self, polygon, theta):
-            return affinity.rotate(polygon,theta,Point(0,0))
+        return affinity.rotate(polygon,theta,Point(0,0))
         
     def polygon_rotate_range(self, polygon, theta1, theta2, num):
-        return ops.cascaded_union([self.polygon_rotate(polygon, t) for t in np.linspace(theta1, theta2, num)])
+        return ops.cascaded_union([self.polygon_rotate(polygon, t) for t in np.linspace(theta1, theta2, num)]).simplify(0.05)
     
     def bounds_rotate(self, polygon, theta1, theta2):
-        return self.bounds(self.polygon_rotate_range(polygon, theta1, theta2, 1 if theta1==theta2 else 200))
+        return self.bounds(self.polygon_rotate_range(polygon, theta1, theta2, 1 if theta1==theta2 else 90))
         
     def loop(self, x):
         return np.vstack((x, x[0]))
@@ -78,10 +79,9 @@ class Shape:
         return Polygon(from_clipper(MinkowskiSum(to_clipper(bounds_b*-1,100), to_clipper(bounds_a,100), True),100)[0])
 
     def buffered_msum(self, msum, buffer=0.3):
-        return msum.simplify(0.01).buffer(buffer,cap_style=2,join_style=2).simplify(0.01)
+        return msum.simplify(0.05).buffer(buffer,cap_style=2,join_style=2).simplify(0.05)
     
     def free_rectangle(self, msum, x, dx, dy, e=0.01):
-        
         latch_sideways=Point(x[0]+dx+e,x[1]).intersects(msum)!=Point(x[0]-dx-e,x[1]).intersects(msum)
         latch_topdown=Point(x[0],x[1]+dy+e).intersects(msum)!=Point(x[0],x[1]-dy-e).intersects(msum)
         
@@ -101,17 +101,16 @@ class Shape:
         angle_ranges = [[0,0],[90,90],[180,180], [270,270], [0,360]]
         bounds_a = self.bounds(self.polygon)
         bounds_B = {(a,b): self.bounds_rotate(shape_b.polygon, a, b) for a,b in angle_ranges}
-        radius = self.radius()+shape_b.radius()
-
+        radius = self.radius()+2*shape_b.radius()
+        
         msums = {angles: self.msum(bounds_a,bounds_b) for angles,bounds_b in bounds_B.items()}
         buffered_msums = {angles: self.buffered_msum(msum) for angles,msum in msums.items()}
         
         self.trim_buffer(msums, buffered_msums, x0)
         self.trim_buffer(msums, buffered_msums, xN)
-
+        
         hulls = {angle_range: self.calc_hulls(msum, radius=radius) for angle_range,msum in buffered_msums.items()}
-
-        return msums, hulls
+        return msums, hulls, radius
 
     def plot_msums(self, msums):
         plt.figure()
@@ -152,14 +151,14 @@ def plot_hulls(hulls, path=None, text=True, figure=True, color='black', hull_col
     for i, hull in enumerate(hulls):
         X,Y = hull.boundary.xy
         [x],[y] = hull.centroid.xy
-        plt.plot(X,Y,'-',linewidth=4,color=hull_color)
+        plt.plot(X,Y,'-',linewidth=7,color=hull_color)
         ax = plt.gca()
         #ax.set_facecolor((0,0,0))
         if text:
-            plt.text(x,y, str(i), fontsize=20)
+            plt.text(x,y, str(i), fontsize=30)
         
     if path is not None:
-        plt.plot(*path, linewidth=3, color=color)
+        plt.plot(*path, linewidth=7, color=color)
     
     if figure:
         plt.show()

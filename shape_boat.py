@@ -14,6 +14,8 @@ from collections import Iterable
 
 class ShapeBoat(ThreeInputBoat, object):
     linear = True
+    width = .90625
+    height = .90625/2
     num_inputs = 4
     S_transition_inds = range(ThreeInputBoat.num_states)
     
@@ -25,6 +27,7 @@ class ShapeBoat(ThreeInputBoat, object):
         self.g         = None
         self.path      = None
         self.hull_path = None
+        self.M         = 4.5
         self.search    = search
     
     def toProblemStates(self, S):
@@ -35,7 +38,10 @@ class ShapeBoat(ThreeInputBoat, object):
         assert len(S)==1
         return super(ShapeBoat, self).toGlobalStates(S, state_initial)
     
-    def toBoatPlotStates(self, S, shape=None):
+    def toBoatPlotStates(self, S=None, shape=None):
+        if S is None:
+            S = np.array([[[0,0,0,0,0,0]]])
+            
         if shape is None:
             shape = self.shape
                         
@@ -59,7 +65,7 @@ class ShapeBoat(ThreeInputBoat, object):
         return super(ShapeBoat, self).plot_configurations(self.toBoatPlotStates(S), stride=stride)
     
     def plot_both_configurations(self, S):
-        confs1 = self.toBoatPlotStates(np.array([[[0,0,0,0,0,0]]]), shape=self.obstacle_shape)
+        confs1 = self.toBoatPlotStates(shape=self.obstacle_shape)
         confs2 = self.toBoatPlotStates(S)[:,:]
         
         plot = plt.subplots(nrows=1,ncols=1, figsize=(16,16))
@@ -73,8 +79,8 @@ class ShapeBoat(ThreeInputBoat, object):
         plt.show()
         
     def plot_animation(self, S, input_trajectories=None, show_regions=False):
-        confs1 = self.toBoatPlotStates(np.array([[[0,0,0,0,0,0] for i in range(S.shape[1])]]), shape=self.obstacle_shape)
-        confs2 = self.toBoatPlotStates(S)[:,:]
+        confs1 = self.toBoatPlotStates(np.array(np.zeros_like(S)), shape=self.obstacle_shape)
+        confs2 = self.toBoatPlotStates(S)
         
         confs = np.vstack((confs1,confs2))
         
@@ -83,7 +89,7 @@ class ShapeBoat(ThreeInputBoat, object):
     def set_end_points(self, x0, xN, all_hulls=False):
         print bold("SETTING ENDPOINTS")
         start = time.time()
-        self.msums, self.hulls = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
+        self.msums, self.hulls, radius = self.obstacle_shape.c_space_rotate(self.shape, x0[0], xN[0])
         print "Calculated C-Space: %f seconds" % (time.time() - start)
         start = time.time()
         self.g = HullGraph(self.hulls)            
@@ -99,7 +105,9 @@ class ShapeBoat(ThreeInputBoat, object):
                             "min_angle":  self.g.vertex_properties["min_angle"][i],  \
                             "max_angle":  self.g.vertex_properties["max_angle"][i]} for i in self.path]
         
-    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False):
+        self.M = 2*radius*2**0.5
+        
+    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False, plot=None):
         if all_hulls:
             chosen_hulls = [x for hulls in self.hulls.values() for x in hulls]
         else: 
@@ -108,18 +116,27 @@ class ShapeBoat(ThreeInputBoat, object):
                 assert in_hull.shape[1] == len(self.hull_path)
             chosen_i = range(len(self.hull_path)) if in_hull is None else np.where(np.sum(in_hull, axis=0)>0)[0] 
             chosen_hulls = [self.hull_path[i]['polygon'] for i in chosen_i]
-  
-        plt.figure(figsize=(10,10))
+          
+        if plot is None:
+            fig, axs = plt.subplots(nrows=1,ncols=1, figsize=(10,10))
+        else:
+            fig, axs = plot
+            
+        self.plot_configuration(self.toBoatPlotStates(shape=self.obstacle_shape)[:,0], plot=(fig, axs), show_regions=False, boat_color='gainsboro', edge_color='silver', edge_width='5')
+    
         plot_hulls([x for hulls in self.hulls.values() for x in hulls] if both else [], None if S_knots is None else (S_knots[0,:,0], S_knots[0,:,1]), figure=False, color='red', hull_color='black', text=text)
+        
         plot_hulls(chosen_hulls, None if S is None else (S[0,:,0], S[0,:,1]), text=text, figure=False)
 
-        plt.tick_params(labelsize='15')
-        plt.xlabel('x (m)', fontsize='15')
-        plt.ylabel('y (m)', fontsize='15')
-        plt.show()
+        plt.tick_params(labelsize='30')
+        plt.xlabel('x (m)', fontsize='30')
+        plt.ylabel('y (m)', fontsize='30')
+        
+        if plot is None:
+            plt.show()
         
     @staticmethod        
-    def hull_constraint(h_bool, x, eq, M=20., mp=None):
+    def hull_constraint(h_bool, x, eq, M=10, mp=None):
         val1 = M*(h_bool-1)+eq['b']
         val2 = eq['A'].dot((x[:2]).T)
         return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=True) if mp is not None else val1<=val2
@@ -145,37 +162,38 @@ class ShapeBoat(ThreeInputBoat, object):
                 mp.AddLinearConstraint(in_hull[t][i]<=1-np.sum(in_hull[t+1][i-1:i]))            
                 mp.AddLinearConstraint(in_hull[t][i]<=np.sum(in_hull[t+1][i:i+2])) 
 
-    def add_position_collision_constraints(self, S, in_hull, opt_hull, mp, M=20.):
+    def add_position_collision_constraints(self, S, in_hull, opt_hull, mp):
         for t in range(S.shape[1]-1):
             for i,hull in enumerate(self.hull_path):
                 for dt in range(2):
                     if opt_hull or in_hull[t][i]:
                         self.hull_constraint(
-                                             in_hull[t][i],      \
-                                             S[0,t+dt],          \
-                                             hull["polygon_eq"], \
-                                             mp=mp               \
+                                             in_hull[t][i],     
+                                             S[0,t+dt],         
+                                             hull["polygon_eq"],
+                                             M=self.M,
+                                             mp=mp              
                                             )
 
-    def add_angle_collision_constraints(self, S, in_hull, mp, M=20., opt_hull=True):
+    def add_angle_collision_constraints(self, S, in_hull, mp, opt_hull=True):
         for t in range(S.shape[0]-1):
             for i,hull in enumerate(self.hull_path):  
                 for dt in range(2):
                     if opt_hull or in_hull[t][i]:
                         cls.angle_constraint(
-                                             in_hull[t][i],      \
-                                             S[0,t+dt],          \
-                                             hull["min_angle"],  \
-                                             hull["max_angle"],  \
-                                             mp=mp               \
+                                             in_hull[t][i],    
+                                             S[0,t+dt],        
+                                             hull["min_angle"],
+                                             hull["max_angle"],
+                                             mp=mp             
                                             )       
 
                         cls.angular_velocity_constraint(                                         
-                                             in_hull[t][i],      \
-                                             S[0,t+dt],          \
-                                             hull["min_angle"],  \
-                                             hull["max_angle"],  \
-                                             mp=mp               \
+                                             in_hull[t][i],    
+                                             S[0,t+dt],        
+                                             hull["min_angle"],
+                                             hull["max_angle"],
+                                             mp=mp             
                                             )
                                        
     @staticmethod
@@ -210,13 +228,13 @@ class ShapeBoat(ThreeInputBoat, object):
 
     @staticmethod
     def add_input_angle_cost(S, U, mp):
-        return mp.AddQuadraticCost(np.sum((U[0,:,2:]/10)**2))
+        return mp.AddQuadraticCost(np.sum((U[0,:,2:])**2/10))
 
 
 class ShapeBoat_spline(ShapeBoat, object):
     
-    M = 0.5 * np.array([[1, 1, 0],[-2, 2, 0],[1, -2, 1]])
-    p_cost_matrix = M.T.dot(np.array([[0, 0, 2]]).T.dot(np.array([[0, 0, 2]])).dot(M))
+    M3 = 0.5 * np.array([[1, 1, 0],[-2, 2, 0],[1, -2, 1]])
+    p_cost_matrix = M3.T.dot(np.array([[0, 0, 2]]).T.dot(np.array([[0, 0, 2]])).dot(M3))
     max_U = np.array([0.01, 0.01, 10])
     U_rate = 5
     
@@ -224,15 +242,15 @@ class ShapeBoat_spline(ShapeBoat, object):
         
     @classmethod
     def B(cls, u_t):
-        return np.array([1, u_t, u_t**2]).dot(cls.M)
+        return np.array([1, u_t, u_t**2]).dot(cls.M3)
     
     @classmethod    
     def dB_dt(cls, u_t, dT):
-        return np.array([0, 1, 2*u_t]).dot(cls.M)/dT
+        return np.array([0, 1, 2*u_t]).dot(cls.M3)/dT
     
     @classmethod    
     def d2B_dt2(cls, u_t, dT):
-        return np.array([0, 0, 2]).dot(cls.M)/dT**2
+        return np.array([0, 0, 2]).dot(cls.M3)/dT**2
     
     @classmethod
     def knots_to_trajectory(cls, S, U, dT_target=1, order=3, dT_round=True, U_rate=None):
@@ -260,6 +278,8 @@ class ShapeBoat_spline(ShapeBoat, object):
         N = dN*(shape[1]-3)+1
         S_new = np.zeros((1,N,shape[2]))
         U_new = np.zeros((1,N,3))
+        
+        S_new[0,0,2] = S_sample[0,0,2]
 
         for x in range(N): 
             knot_ind = int(x/dN)
@@ -290,27 +310,34 @@ class ShapeBoat_spline(ShapeBoat, object):
         return  cls.knots_to_trajectory(S, U, target_dT)
     
     @staticmethod        
-    def hull_edge_constraint(h_bool0, h_bool1, a, x0, x2, eq, M=20., mp=None, linear=True):
+    def hull_edge_constraint(h_bool0, h_bool1, a, x0, x2, eq, M=10, mp=None, linear=True):
         x_avg = a*x0 + (1-a)*x2
         val1 = M*(h_bool0-h_bool1-1)+eq['b']
         val2 = eq['A'].dot((x_avg[:2]).T)
         return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=linear) if mp is not None else val1<=val2
 
     @staticmethod        
-    def hull_edge_constraint2(h_bool0, h_bool1, a, x0, x1, x2, eq, M=20., mp=None, linear=True):
+    def hull_edge_constraint2(h_bool0, h_bool1, a, x0, x1, x2, eq, M=10, mp=None, linear=True):
         x_avg = a*(x0+x1)/2+(1-a)*(x1+x2)/2
-        val1 = M*(h_bool0-h_bool1-1)+eq['b']
+        val1 = M*(h_bool0-1)+eq['b']
+        val2 = eq['A'].dot((x_avg[:2]).T)
+        return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=linear) if mp is not None else val1<=val2    
+
+    def hull_edge_constraint3(self, h_bool0, h_bool1, a, x0, x1, x2, eq, M=10, mp=None, linear=True):
+        x_avg = np.array([[1, a, a**2]]).dot(self.M3).dot(np.array([x0,x1,x2]))[0]
+        val1 = M*(h_bool0-1)+eq['b']
         val2 = eq['A'].dot((x_avg[:2]).T)
         return mp.add_leq_constraints(val1-val2,np.zeros(val1.shape), linear=linear) if mp is not None else val1<=val2    
     
-    def add_position_collision_constraints(self, S, in_hull, opt_hull, mp, M=20.):
-        super(ShapeBoat_spline, self).add_position_collision_constraints(S, in_hull, opt_hull, mp, M)
+    def add_position_collision_constraints(self, S, in_hull, opt_hull, mp):
+        super(ShapeBoat_spline, self).add_position_collision_constraints(S, in_hull, opt_hull, mp)
         N, H = in_hull.shape
 
         if opt_hull:
             a = 0.5*np.ones(N-1)
         else:
             a = mp.NewContinuousVariables(N-1)
+            #mp.SetInitialGuess(a, 0.5*np.ones(N-1))
             mp.add_leq_constraints(a, np.ones(N-1))
             mp.add_leq_constraints(-a, np.zeros(N-1))
             
@@ -320,26 +347,28 @@ class ShapeBoat_spline(ShapeBoat, object):
                 t_e = t-1
                 
                 if opt_hull or (in_hull[t][i]+in_hull[t-1][i]==1):
-                    self.hull_edge_constraint2(in_hull[t][i],      \
-                                              in_hull[t-1][i],    \
-                                              a[t_e],             \
-                                              S[0,t-1,:2],        \
-                                              S[0,t,:2],        \
-                                              S[0,t+1,:2],        \
-                                              hull["polygon_eq"], \
-                                              mp=mp,              \
-                                              linear=opt_hull     \
+                    self.hull_edge_constraint2(in_hull[t][i],    
+                                              in_hull[t-1][i],   
+                                              a[t_e],            
+                                              S[0,t-1,:2],       
+                                              S[0,t,:2],         
+                                              S[0,t+1,:2],       
+                                              hull["polygon_eq"],
+                                              M=self.M,           
+                                              mp=mp,             
+                                              linear=opt_hull    
                                              )
 
-                    self.hull_edge_constraint2(in_hull[t-1][i],    \
-                                              in_hull[t][i],      \
-                                              a[t_e],             \
-                                              S[0,t-1,:2],        \
-                                              S[0,t,:2],        \
-                                              S[0,t+1,:2],        \
-                                              hull["polygon_eq"], \
-                                              mp=mp,              \
-                                              linear=opt_hull     \
+                    self.hull_edge_constraint2(in_hull[t-1][i],   
+                                              in_hull[t][i],     
+                                              a[t_e],            
+                                              S[0,t-1,:2],       
+                                              S[0,t,:2],       
+                                              S[0,t+1,:2],       
+                                              hull["polygon_eq"],
+                                              M=self.M,  
+                                              mp=mp,             
+                                              linear=opt_hull    
                                              )
 
     @classmethod    
@@ -355,7 +384,7 @@ class ShapeBoat_spline(ShapeBoat, object):
                 P[1] = P[2] = S[0,T-1,:2]
             else:
                 P=S[0,k-1:k+2,:2]
-            mp.AddQuadraticCost(100*np.sum(np.multiply(cls.p_cost_matrix.dot(P),P)))
+            mp.AddQuadraticCost(np.sum(np.multiply(cls.p_cost_matrix.dot(P),P)))
 
     @staticmethod              
     def boat_dynamics(s, u, am):
