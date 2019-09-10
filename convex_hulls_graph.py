@@ -2,6 +2,7 @@ import collections
 import numpy as np
 from graph_tool import Graph, search, generation, draw
 from timeit import time
+import multiprocessing
 
 class Visitor(search.BFSVisitor):
     def __init__(self, pred, dist):
@@ -11,6 +12,10 @@ class Visitor(search.BFSVisitor):
     def tree_edge(self, e):
         self.pred[e.target()] = int(e.source())
         self.dist[e.target()] = self.dist[e.source()] + 1
+        
+    
+def intersection_check(v):
+    return v[0],v[1], v[2].intersection(v[3])
 
 class HullGraph(Graph):
     def edges(g, hull):
@@ -71,20 +76,14 @@ class HullGraph(Graph):
         start = time.time()
         for (min_angle, max_angle),H in hulls.items():
             e2h, vertices = extract_edges(H, min_angle, max_angle)
+            print vertices
             angle_V.append([min_angle, max_angle, vertices])
-            add_edges_from_hull_dict(e2h)
-            
-        start = time.time()
-            
-        for i in range(len(angle_V)):
-            for j in range(i+1, len(angle_V)):
-                if angle_V[j][0]<=angle_V[i][0]<=angle_V[j][1] or angle_V[j][0]<=angle_V[i][1]<=angle_V[j][1] or (angle_V[i][0]<angle_V[j][0] and angle_V[j][1]<=angle_V[i][1]):
-                    for v1 in angle_V[i][2]:
-                        for v2 in angle_V[j][2]:
-                            if g.v_poly[v1].intersection(g.v_poly[v2]).length>0:
-                                edge = g.add_edge(g.vertex(v1),g.vertex(v2))
-                                #g.edge_dict[g.edge_index[edge]] = edge
-                                #g.edge_properties["points"][edge] = np.array(zip(*intersection.boundary.xy))            
+            add_edges_from_hull_dict(e2h)        
+        
+        angles = [(i,j) for i in range(len(angle_V)) for j in range(i+1, len(angle_V)) if angle_V[j][0]<=angle_V[i][0]<=angle_V[j][1] or angle_V[j][0]<=angle_V[i][1]<=angle_V[j][1] or (angle_V[i][0]<angle_V[j][0]<angle_V[i][1])]
+
+        g.add_edge_list([(v1,v2) for i,j in angles for v1 in angle_V[i][2] for v2 in angle_V[j][2] if g.v_poly[v1].intersection(g.v_poly[v2]).length>0])
+        
        
     def line_graph(g):
         lg, lg_vmap = generation.line_graph(g)

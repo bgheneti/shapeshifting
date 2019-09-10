@@ -82,7 +82,7 @@ class ShapeBoat(ThreeInputBoat, object):
         confs1 = self.toBoatPlotStates(np.array(np.zeros_like(S)), shape=self.obstacle_shape)
         confs2 = self.toBoatPlotStates(S)
         
-        confs = np.vstack((confs1,confs2))
+        confs = np.vstack([confs1[1:], confs2[1:] , confs1[0:1], confs2[0:1]])
         
         return super(ShapeBoat, self).plot_animation(confs, input_trajectories=input_trajectories, show_regions=show_regions)
         
@@ -107,7 +107,7 @@ class ShapeBoat(ThreeInputBoat, object):
         
         self.M = 2*radius*2**0.5
         
-    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False, plot=None):
+    def plot_hulls(self, S=None, S_knots=None, in_hull=None, all_hulls=False, text=True, both=False, plot=None, color=False):
         if all_hulls:
             chosen_hulls = [x for hulls in self.hulls.values() for x in hulls]
         else: 
@@ -122,12 +122,18 @@ class ShapeBoat(ThreeInputBoat, object):
         else:
             fig, axs = plot
             
-        self.plot_configuration(self.toBoatPlotStates(shape=self.obstacle_shape)[:,0], plot=(fig, axs), show_regions=False, boat_color='gainsboro', edge_color='silver', edge_width='5')
+        conf = self.toBoatPlotStates(shape=self.obstacle_shape)[::-1,0]
+        if color:
+            self.plot_configuration(conf, plot=(fig, axs), show_regions=False, boat_color='#ec7d33ff', border=1, region_color='0.2', edge_color='silver', edge_width='3', coordinators=1)
+        else:    
+            self.plot_configuration(conf, plot=(fig, axs), show_regions=False, boat_color='gainsboro', edge_color='silver', edge_width='5', coordinators=1)
     
         plot_hulls([x for hulls in self.hulls.values() for x in hulls] if both else [], None if S_knots is None else (S_knots[0,:,0], S_knots[0,:,1]), figure=False, color='red', hull_color='black', text=text)
         
         plot_hulls(chosen_hulls, None if S is None else (S[0,:,0], S[0,:,1]), text=text, figure=False)
-
+        plt.axis('off')
+        plt.xlim(-5, 5)
+        plt.ylim(-5, 5)
         plt.tick_params(labelsize='30')
         plt.xlabel('x (m)', fontsize='30')
         plt.ylabel('y (m)', fontsize='30')
