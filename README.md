@@ -22,8 +22,3 @@ See Youtube for an [explanation video](https://youtu.be/kd0PPfe8hwg).
 
 - Main dependency is [drake](https://github.com/RobotLocomotion/drake)
 - Install other python dependencies with `pip install sklearn tabular`
-
-
-
-
-

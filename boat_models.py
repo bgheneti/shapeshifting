@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")
 from pydrake.symbolic import sin, cos
 import matplotlib.animation as animation
 from matplotlib.patches import Circle, Rectangle
@@ -217,7 +219,7 @@ class Boat():
             plt.plot()
         return fig, axs
 
-    def plot_configuration(self, boats_s, alphas=None, show_regions=True, plot=None, region_color='0.2', boat_color='darkorange', border=None, region_fill=True, edge_color=None, edge_width=None):
+    def plot_configuration(self, boats_s, alphas=None, show_regions=True, plot=None, region_color='0.2', boat_color='darkorange', border=None, region_fill=True, edge_color=None, edge_width=None, coordinators=0):
         if plot is None:
             fig, axs = plt.subplots(nrows=1,ncols=1, figsize=(24,16))        
             split = self.split
@@ -244,7 +246,7 @@ class Boat():
                  
         patches = []
         regions = []
-        for pose,alpha in zip(boats_s,alphas):
+        for i, (pose,alpha) in enumerate(zip(boats_s,alphas)):
             if show_regions:
                 if self.split:      
                     regions.append([Circle(pose[:3], self.split_min_interboat_distance/2, color=region_color, alpha=alpha),
@@ -255,7 +257,12 @@ class Boat():
                 else:
                     regions.append(Circle(pose[:3], self.min_interboat_distance/2, color=region_color, alpha=alpha, linewidth=border, linestyle='solid', edgecolor='0', fill=region_fill))
                     axs.add_patch(regions[-1])
-
+            if i > len(boats_s)-1-coordinators:
+                ec='red'
+                ew=4
+            else:
+                ec=edge_color
+                ew=edge_width
             pose = patch_pose(pose[:3])
             patches.append(
                 Rectangle(
@@ -265,11 +272,12 @@ class Boat():
                     pose[2],
                     alpha=alpha,
                     facecolor=boat_color,
-                    edgecolor=edge_color,
-                    linewidth=edge_width
+                    edgecolor=ec,
+                    linewidth=ew
                 )
             )
             axs.add_patch(patches[-1])
+            
         if plot is None:
             plt.plot()
         return patches, regions
@@ -332,16 +340,18 @@ class Boat():
             
             return patches
                 
-        fig, axs = plt.subplots(nrows=1,ncols=1, figsize=(12,8))
+        fig, axs = plt.subplots(nrows=1,ncols=1, figsize=(10,10))
         
         axs.axis('off')
+        axs.set_xlim([-5,5])
+        axs.set_ylim([-5,5])
         
-        self.plot_x0xN(boats_S, [0.2], [0.2], plot=(fig, axs), boat_colorN='w', region_colorN='darkorange', show_regions=show_regions)
+        #self.plot_x0xN(boats_S, [0.2], [0.2], plot=(fig, axs), boat_colorN='w', region_colorN='darkorange', show_regions=show_regions)
         
         axs.set_aspect('equal')
-        patches, regions = self.plot_configuration(boats_S[:,0], plot=(fig,axs), boat_color='darkorange', border=1, region_color='0.2', show_regions=show_regions)
-        plt.xlim(np.min(boats_S[:,:,0])-self.width, np.max(boats_S[:,:,0])+self.width)
-        plt.ylim(np.min(boats_S[:,:,1])-self.width, np.max(boats_S[:,:,1])+self.width)
+        patches, regions = self.plot_configuration(boats_S[:,0], plot=(fig,axs), boat_color='#ec7d33ff', border=1, region_color='0.2', show_regions=show_regions, edge_color='silver', edge_width='3', coordinators=2)
+        #plt.xlim(np.min(boats_S[:,:,0])-self.width, np.max(boats_S[:,:,0])+self.width)
+        #plt.ylim(np.min(boats_S[:,:,1])-self.width, np.max(boats_S[:,:,1])+self.width)
         ani = animation.FuncAnimation(fig, animate, frames=range(boats_S.shape[1]), blit=True, interval=20)
         return ani   
     
